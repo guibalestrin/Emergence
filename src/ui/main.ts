@@ -40,13 +40,15 @@ class App implements PanelHost {
   private last = performance.now();
   private lastPanel = 0;
   private lastFeed = 0;
+  private lastSociety = 0;
   private feedFilter = 'all';
   private feedCount = -1;
   private tab: 'agent' | 'society' = 'agent';
   private mouse = { x: 0, y: 0, down: false, button: 0, dragX: 0, dragY: 0, moved: false, painted: false };
 
   constructor() {
-    this.cfg = defaultConfig(Math.floor(Math.random() * 99999) + 1);
+    // a tested, balanced world for the first impression; "Novo mundo" picks random seeds
+    this.cfg = defaultConfig(314);
     this.renderer = new Renderer($('#world') as HTMLCanvasElement);
     this.charts = new Charts($('#charts'));
     this.agentPanel = new AgentPanel($('#panel-agent'), this, () => this.sim);
@@ -123,7 +125,7 @@ class App implements PanelHost {
       this.lastPanel = now;
       this.updateTop();
       if (this.tab === 'agent') this.agentPanel.update();
-      else if (now % 1000 < 260) this.societyPanel.update(this.sim);
+      else if (now - this.lastSociety > 1000) { this.lastSociety = now; this.societyPanel.update(this.sim); }
       this.charts.update(this.sim);
     }
     if (now - this.lastFeed > 400) {

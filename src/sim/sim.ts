@@ -612,10 +612,26 @@ export class Simulation {
       b.outlook = clamp(b.outlook - 0.05, -1, 1);
       b.remember(tick, 'Alguém levou minha comida sem eu ver', -0.5);
     }
+    let punisher: Agent | null = null;
     for (const o of seen) {
       o.adjustTrust(a.id, -0.35, tick);
       o.adjustTrust(b.id, 0.03, tick);
       o.remember(tick, `Vi ${a.name} roubando ${b.name}`, -0.4);
+      // third-party punishment: a bold bystander who cares about the victim intervenes
+      const care = 0.4 * o.traits.boldness + 0.3 * o.traits.generosity + 0.3 * Math.max(0, o.trustIn(b.id)) - (o.kin.has(a.id) ? 1 : 0);
+      if (!recovered && !punisher && this.rng.chance(care * 0.7)) punisher = o;
+    }
+    if (punisher) {
+      const back = Math.min(amt, a.food);
+      a.food -= back; b.food += back;
+      a.health -= 0.06; punisher.health -= 0.02;
+      a.adjustTrust(punisher.id, -0.3, tick);
+      b.adjustTrust(punisher.id, 0.25, tick);
+      punisher.remember(tick, `Obriguei ${a.name} a devolver o que roubou de ${b.name}`, 0.2);
+      a.remember(tick, `${punisher.name} me obrigou a devolver a comida`, -0.5);
+      b.remember(tick, `${punisher.name} me defendeu de ${a.name}`, 0.6);
+      recovered = true;
+      this.milestone('punish', 'Primeira punição por terceiros: alguém defendeu uma vítima que não era da família', [punisher.id, a.id]);
     }
     const caught = victimSaw || seen.length > 0;
     if (caught) { a.stats.caught++; this.day.caught++; }
@@ -623,7 +639,7 @@ export class Simulation {
     this.addFx(caught ? 'caught' : 'steal', a, b);
     this.log('theft',
       `${a.name} roubou ${amt} de comida de ${b.name}` +
-        (recovered ? ' — e foi confrontado(a); a comida foi recuperada' : caught ? ` — visto por ${victimSaw ? 'a vítima' : ''}${victimSaw && seen.length ? ' e ' : ''}${seen.length ? seen.length + ' testemunha(s)' : ''}` : ' — ninguém percebeu'),
+        (punisher ? ` — ${punisher.name} interveio e obrigou a devolução` : recovered ? ' — e foi confrontado(a); a comida foi recuperada' : caught ? ` — visto por ${victimSaw ? 'a vítima' : ''}${victimSaw && seen.length ? ' e ' : ''}${seen.length ? seen.length + ' testemunha(s)' : ''}` : ' — ninguém percebeu'),
       [a.id, b.id], a.tile);
     a.remember(tick, caught ? `Fui pego roubando ${b.name}` : `Roubei ${b.name} sem ser visto`, caught ? -0.5 : 0.1);
     this.learn(a, Act.Steal, (caught ? -0.55 : 0.25 + amt * 0.08) - a.traits.generosity * 0.25 - (recovered ? 0.3 : 0));

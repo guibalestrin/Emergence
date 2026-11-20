@@ -110,6 +110,24 @@ export class World {
           if (rng.next() < p) this.foodCap[i] = rng.range(3, 6);
         }
       }
+    // Guarantee drinkable water: some seeds produce dry maps. Carve lakes until
+    // there is enough water for the world to be livable.
+    let water = 0;
+    for (let i = 0; i < N_TILES; i++) if (this.terrain[i] === Terrain.Water) water++;
+    for (let k = 0; k < 6 && water < 260; k++) {
+      const cx = 10 + rng.int(W - 20), cy = 8 + rng.int(H - 16), r = 4 + rng.int(3);
+      for (let y = cy - r; y <= cy + r; y++)
+        for (let x = cx - r; x <= cx + r; x++) {
+          const d = Math.hypot(x - cx, y - cy);
+          if (d > r || !this.inb(x, y)) continue;
+          const i = this.idx(x, y);
+          if (this.terrain[i] !== Terrain.Water) water++;
+          this.terrain[i] = Terrain.Water;
+          this.depth[i] = Math.max(this.depth[i], 0.05 + (1 - d / r) * 0.3);
+          this.foodCap[i] = 0; this.woodCap[i] = 0; this.wood[i] = 0;
+        }
+    }
+
     // Normalise total plant capacity so different seeds give comparable
     // ecologies (otherwise one map can simply be a desert). Extra bushes are
     // placed preferentially on fertile land next to existing patches.

@@ -3,6 +3,7 @@ import type { Agent } from '../sim/agent';
 import { ACT_LABEL, Act, LEARNED_ACTS, TRAIT_LABEL, Traits, TICKS_PER_DAY, Candidate, clamp } from '../sim/types';
 import { temperamentColor, groupColor } from './renderer';
 import { sparkline } from './charts';
+import { detectInsights } from '../sim/insights';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const pct = (v: number) => `${Math.round(v * 100)}`;
@@ -292,6 +293,12 @@ export class SocietyPanel {
         <div class="kpi"><div class="l">Totais</div><div class="v" style="font-size:14px">${sum((m) => m.shares)} doações</div><div class="d">${sum((m) => m.trades)} trocas · ${sum((m) => m.thefts)} roubos</div></div>
         <div class="kpi"><div class="l">Lares</div><div class="v">${last?.households ?? 0}</div><div class="d">${sim.shelters.filter((s) => s.alive).length} abrigos construídos</div></div>
       </div>
+      <h3>Padrões detectados agora</h3>
+      <div class="groups">${
+        detectInsights(sim)
+          .map((i) => `<div class="group"><div class="gh">${i.icon} ${esc(i.title)}</div><div class="gm">${esc(i.text)}${i.agents.length ? `<br>${i.agents.map((m) => `<a data-agent="${m}">${esc(sim.byId.get(m)?.name ?? '?')}</a>`).join(', ')}` : ''}</div></div>`)
+          .join('') || '<div class="empty">Ainda nenhum padrão claro. Deixe o tempo correr (ou provoque uma crise).</div>'
+      }</div>
       <h3>Grupos emergentes (${sim.groups.length})</h3>
       <div class="groups">${
         sim.groups
