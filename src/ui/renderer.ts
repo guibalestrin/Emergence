@@ -1,4 +1,4 @@
-import type { Simulation } from '../sim/sim';
+import type { Simulation, Shelter } from '../sim/sim';
 import type { Agent } from '../sim/agent';
 import { W, H, Terrain, ACT_GLYPH, Act, TICKS_PER_DAY, NIGHT_START } from '../sim/types';
 import { mutualTrust, GROUP_TRUST } from '../sim/social';
@@ -16,6 +16,7 @@ export interface ViewState {
   hovered: number | null;
   showNet: boolean;
   showGlyphs: boolean;
+  showBubbles?: boolean;
   brush: { tile: number; radius: number } | null;
 }
 
@@ -34,6 +35,8 @@ export interface WorldView {
   centerOn(tile: number): void;
   follow(a: Agent, alpha: number): void;
   draw(sim: Simulation, alpha: number, view: ViewState, now: number): void;
+  /** Optional: structure under the cursor (3D only). */
+  pickShelter?(sim: Simulation, sx: number, sy: number): Shelter | null;
 }
 
 export function hash(i: number, k: number) {

@@ -1,7 +1,8 @@
 import {
   createElement, Crosshair, Sprout, ShoppingBasket, Axe, TreePine, Droplet, Flame, UserPlus, Biohazard, Sun, CloudRain,
   Snowflake, CloudSun, Play, Pause, RotateCcw, FlaskConical, CircleQuestionMark, Box, Map, X, Scale, MessageCircle, Dices,
-  Handshake, House, CloudFog, TrendingDown, Apple, Users, Plus, type IconNode,
+  Handshake, House, CloudFog, TrendingDown, Apple, Users, Plus, Ellipsis, ZoomIn, ZoomOut, RotateCw, Eye, Video, Scan, Layers,
+  PanelRightClose, PanelRightOpen, ChevronUp, Globe, type IconNode,
 } from 'lucide';
 
 const ICONS: Record<string, IconNode> = {
@@ -9,7 +10,8 @@ const ICONS: Record<string, IconNode> = {
   spawn: UserPlus, disease: Biohazard, drought: Sun, deluge: CloudRain, winter: Snowflake, normal: CloudSun,
   play: Play, pause: Pause, replay: RotateCcw, lab: FlaskConical, help: CircleQuestionMark, cube: Box, map: Map, close: X,
   scale: Scale, talk: MessageCircle, dice: Dices, deal: Handshake, house: House, fog: CloudFog, down: TrendingDown,
-  food: Apple, group: Users, plus: Plus,
+  food: Apple, group: Users, plus: Plus, more: Ellipsis, zoomin: ZoomIn, zoomout: ZoomOut, rotl: RotateCcw, rotr: RotateCw,
+  eye: Eye, tour: Video, fit: Scan, layers: Layers, panelr: PanelRightClose, panell: PanelRightOpen, up: ChevronUp, globe: Globe,
 };
 
 const cache: Record<string, string> = {};

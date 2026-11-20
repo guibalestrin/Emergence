@@ -9,95 +9,137 @@
   </head>
   <body>
     <div id="app">
-      <header id="topbar">
-        <div class="brand">
-          <span class="logo">Emergence</span>
-          <span class="tag" id="seedtag">sociedade artificial</span>
-        </div>
-        <div class="clock">
-          <span id="date">—</span>
-          <span id="climate" class="pill">clima normal</span>
-          <span id="popcount" class="pill">—</span>
-        </div>
-        <div class="controls">
-          <div class="seg" id="viewmode" title="Alternar visão 3D / mapa (tecla V)">
-            <button data-mode="3d" class="on"><i data-icon="cube" data-size="14"></i>3D</button>
-            <button data-mode="2d"><i data-icon="map" data-size="14"></i>Mapa</button>
-          </div>
-          <button id="play" class="btn icon" title="Pausar / continuar (Espaço)"><i data-icon="pause" data-size="15"></i></button>
-          <div class="seg" id="speeds">
-            <button data-speed="1" class="on" title="Tecla 1">1×</button>
-            <button data-speed="3" title="Tecla 2">3×</button>
-            <button data-speed="10" title="Tecla 3">10×</button>
-            <button data-speed="30" title="Tecla 4">30×</button>
-          </div>
-          <button id="btn-new" class="btn" title="Configurar e gerar um novo mundo">Novo mundo</button>
-          <button id="btn-replay" class="btn" title="Recomeçar exatamente o mesmo mundo (mesma semente)"><i data-icon="replay" data-size="14"></i>Mesma semente</button>
-          <button id="btn-lab" class="btn accent" title="Rodar experimentos controlados"><i data-icon="lab" data-size="15"></i>Laboratório</button>
-          <button id="btn-help" class="btn icon" title="Como funciona"><i data-icon="help" data-size="16"></i></button>
-        </div>
-      </header>
-
       <div id="stage">
         <div id="viewport">
           <canvas id="world"></canvas>
           <canvas id="world3d"></canvas>
           <div id="label3d"></div>
-        </div>
-
-        <nav id="toolbar" aria-label="Ferramentas de intervenção">
-          <div class="tgroup">
-            <button class="tool on" data-tool="observe" title="Observar: clique em um indivíduo para inspecioná-lo. Arraste para mover a câmera; botão direito gira (3D)."><i data-icon="observe"></i><span>Observar</span></button>
-          </div>
-          <div class="tlabel">Ambiente</div>
-          <div class="tgroup">
-            <button class="tool" data-tool="plant" title="Plantar arbustos de frutas (pincel)"><i data-icon="plant"></i><span>Plantar</span></button>
-            <button class="tool" data-tool="gift" title="Lançar uma dádiva de comida no chão"><i data-icon="gift"></i><span>Dádiva</span></button>
-            <button class="tool" data-tool="clear" title="Remover vegetação (pincel)"><i data-icon="clear"></i><span>Desmatar</span></button>
-            <button class="tool" data-tool="forest" title="Plantar floresta (pincel)"><i data-icon="forest"></i><span>Floresta</span></button>
-            <button class="tool" data-tool="water" title="Criar lago (pincel)"><i data-icon="water"></i><span>Água</span></button>
-            <button class="tool" data-tool="fire" title="Iniciar um incêndio"><i data-icon="fire"></i><span>Fogo</span></button>
-          </div>
-          <div class="tlabel">Indivíduos</div>
-          <div class="tgroup">
-            <button class="tool" data-tool="spawn" title="Introduzir um novo indivíduo"><i data-icon="spawn"></i><span>Novo ser</span></button>
-            <button class="tool" data-tool="disease" title="Infectar um indivíduo com uma doença contagiosa"><i data-icon="disease"></i><span>Doença</span></button>
-            <select id="preset" title="Personalidade do novo indivíduo"></select>
-          </div>
-          <div class="tlabel">Clima</div>
-          <div class="tgroup">
-            <button class="tool act" id="cl-drought" title="Seca severa por 16 dias: chuva cai, lagos rasos secam, plantas crescem pouco"><i data-icon="drought"></i><span>Seca</span></button>
-            <button class="tool act" id="cl-deluge" title="Chuvas abundantes por 12 dias"><i data-icon="deluge"></i><span>Chuvas</span></button>
-            <button class="tool act" id="cl-winter" title="Invernos rigorosos (frio mais intenso, mais lenha queimada)"><i data-icon="winter"></i><span>Inverno duro</span></button>
-            <button class="tool act" id="cl-normal" title="Normalizar o clima"><i data-icon="normal"></i><span>Normal</span></button>
-          </div>
-          <div class="brush">
-            <label>Pincel <input id="brush" type="range" min="1" max="6" value="2" /></label>
-          </div>
-        </nav>
-
-        <div id="hint"></div>
-        <div id="tooltip"></div>
-
-        <div id="legend">
-          <div><i class="dot" style="background:#4fd1b5"></i>generoso <i class="dot" style="background:#e8794a"></i>egoísta/ousado</div>
-          <div><i class="ring"></i>anel = grupo emergente · casa = abrigo</div>
-          <label class="chk"><input type="checkbox" id="ov-net" /> rede de confiança</label>
-          <label class="chk"><input type="checkbox" id="ov-glyph" checked /> intenções</label>
+          <div id="bubbles" aria-hidden="true"></div>
         </div>
       </div>
 
-      <aside id="side">
-        <div class="tabs">
-          <button data-tab="agent" class="on">Indivíduo</button>
-          <button data-tab="society">Sociedade</button>
+      <!-- top-left: identity + world clock -->
+      <header id="topbar" class="glass bar">
+        <div class="brand">
+          <span class="logo">Emergence</span>
+          <span class="tag" id="seedtag">sociedade artificial</span>
+        </div>
+        <span class="sep"></span>
+        <div class="clock">
+          <span id="date">—</span>
+          <span id="climate" class="pill hidden"></span>
+        </div>
+        <span id="popcount" class="pop">—</span>
+      </header>
+
+      <!-- top-right: time + world controls -->
+      <div id="controls" class="glass bar">
+        <div class="seg" id="viewmode" title="Alternar visão 3D / mapa (tecla V)">
+          <button data-mode="3d" class="on"><i data-icon="cube" data-size="14"></i>3D</button>
+          <button data-mode="2d"><i data-icon="map" data-size="14"></i>Mapa</button>
+        </div>
+        <span class="sep"></span>
+        <button id="play" class="btn icon ghost" title="Pausar / continuar (Espaço)"><i data-icon="pause" data-size="15"></i></button>
+        <div class="seg" id="speeds">
+          <button data-speed="1" class="on" title="Tecla 1">1×</button>
+          <button data-speed="3" title="Tecla 2">3×</button>
+          <button data-speed="10" title="Tecla 3">10×</button>
+          <button data-speed="30" title="Tecla 4">30×</button>
+        </div>
+        <span class="sep"></span>
+        <div class="menu-wrap">
+          <button id="btn-more" class="btn icon ghost" title="Mundo" aria-haspopup="true" aria-expanded="false"><i data-icon="more" data-size="16"></i></button>
+        </div>
+        <button id="btn-lab" class="btn accent" title="Rodar experimentos controlados"><i data-icon="lab" data-size="15"></i>Laboratório</button>
+      </div>
+
+      <!-- left: tool dock (icons only; labels on hover) -->
+      <nav id="toolbar" class="glass dock" aria-label="Ferramentas de intervenção">
+        <button class="tool on" data-tool="observe" data-label="Observar" title="Observar: clique em alguém para inspecionar"><i data-icon="observe"></i></button>
+        <span class="dsep"></span>
+        <button class="tool" data-tool="plant" data-label="Plantar comida" title="Plantar arbustos de frutas"><i data-icon="plant"></i></button>
+        <button class="tool" data-tool="forest" data-label="Floresta" title="Plantar floresta"><i data-icon="forest"></i></button>
+        <button class="tool" data-tool="water" data-label="Lago" title="Criar lago"><i data-icon="water"></i></button>
+        <button class="tool" data-tool="clear" data-label="Desmatar" title="Remover vegetação"><i data-icon="clear"></i></button>
+        <button class="tool" data-tool="gift" data-label="Dádiva de comida" title="Lançar comida no chão"><i data-icon="gift"></i></button>
+        <button class="tool" data-tool="fire" data-label="Incêndio" title="Iniciar um incêndio"><i data-icon="fire"></i></button>
+        <span class="dsep"></span>
+        <button class="tool" data-tool="spawn" data-label="Novo indivíduo" title="Introduzir um novo indivíduo"><i data-icon="spawn"></i></button>
+        <button class="tool" data-tool="disease" data-label="Doença" title="Infectar alguém"><i data-icon="disease"></i></button>
+        <span class="dsep"></span>
+        <button class="tool" id="btn-climate" data-label="Clima" title="Clima" aria-expanded="false"><i data-icon="normal"></i></button>
+      </nav>
+
+      <!-- contextual options for the active tool -->
+      <div id="toolopts" class="glass flyout hidden">
+        <div class="fo-title" id="toolopts-title">Pincel</div>
+        <label class="fo-row brushrow">Tamanho <input id="brush" type="range" min="1" max="6" value="2" /></label>
+        <label class="fo-row presetrow">Personalidade <select id="preset"></select></label>
+      </div>
+      <div id="climatebox" class="glass flyout hidden">
+        <div class="fo-title">Clima</div>
+        <div class="climate-grid">
+          <button class="chip act" id="cl-drought" title="Seca severa por 16 dias"><i data-icon="drought" data-size="15"></i>Seca</button>
+          <button class="chip act" id="cl-deluge" title="Chuvas abundantes por 12 dias"><i data-icon="deluge" data-size="15"></i>Chuvas</button>
+          <button class="chip act" id="cl-winter" title="Invernos rigorosos"><i data-icon="winter" data-size="15"></i>Inverno duro</button>
+          <button class="chip act" id="cl-normal" title="Normalizar o clima"><i data-icon="normal" data-size="15"></i>Normal</button>
+        </div>
+      </div>
+
+      <!-- camera cluster -->
+      <div id="camnav" class="glass dock small" aria-label="Câmera">
+        <button class="nb" data-cam="in" data-label="Aproximar (+)" title="Aproximar"><i data-icon="zoomin" data-size="16"></i></button>
+        <button class="nb" data-cam="out" data-label="Afastar (−)" title="Afastar"><i data-icon="zoomout" data-size="16"></i></button>
+        <button class="nb" data-cam="left" data-label="Girar (Q)" title="Girar à esquerda"><i data-icon="rotl" data-size="16"></i></button>
+        <button class="nb" data-cam="right" data-label="Girar (E)" title="Girar à direita"><i data-icon="rotr" data-size="16"></i></button>
+        <button class="nb" data-cam="ground" data-label="Visão do chão (G)" title="Visão do chão"><i data-icon="eye" data-size="16"></i></button>
+        <button class="nb" data-cam="tour" data-label="Passeio automático (T)" title="Passeio automático"><i data-icon="tour" data-size="16"></i></button>
+        <button class="nb" data-cam="fit" data-label="Visão geral (R)" title="Visão geral"><i data-icon="fit" data-size="16"></i></button>
+        <span class="dsep"></span>
+        <div class="menu-wrap up">
+          <button class="nb" id="btn-legend" data-label="Legenda e camadas" title="Legenda e camadas"><i data-icon="layers" data-size="16"></i></button>
+        </div>
+      </div>
+
+      <!-- popovers live at the top level: nested inside a backdrop-filtered surface they would lose their own backdrop -->
+      <div id="menu-more" class="glass pop-menu hidden" role="menu">
+        <button id="btn-new" role="menuitem"><i data-icon="globe" data-size="15"></i><span>Novo mundo<small>outra semente e configuração</small></span></button>
+        <button id="btn-replay" role="menuitem"><i data-icon="replay" data-size="15"></i><span>Mesma semente<small>repetir esta história do zero</small></span></button>
+        <button id="btn-help" role="menuitem"><i data-icon="help" data-size="15"></i><span>Como funciona<small>introdução e atalhos</small></span></button>
+      </div>
+      <div id="legend" class="glass pop-menu hidden">
+        <div class="fo-title">Como ler o mundo</div>
+        <div class="lg-row"><i class="dot" style="background:#4fd1b5"></i>generoso <i class="dot" style="background:#e8794a;margin-left:8px"></i>egoísta/ousado</div>
+        <div class="lg-row"><i class="ring"></i>anel colorido = grupo emergente</div>
+        <div class="lg-row"><i class="dot sq" style="background:#d8c39a"></i>casa · <i class="dot sq" style="background:#a0703c"></i>lenha · <i class="dot sq" style="background:#e0405f"></i>celeiro</div>
+        <div class="lg-row arcs"><i style="background:#5fd0a5"></i>doação <i style="background:#e8b04a"></i>troca <i style="background:#79a7ff"></i>conversa <i style="background:#e2665c"></i>roubo</div>
+        <div class="fo-title" style="margin-top:10px">Camadas</div>
+        <label class="chk"><input type="checkbox" id="ov-net" /> rede de confiança</label>
+        <label class="chk"><input type="checkbox" id="ov-bubbles" checked /> balões de interação</label>
+        <label class="chk"><input type="checkbox" id="ov-glyph" checked /> intenções (mapa)</label>
+      </div>
+      <div id="hint"></div>
+      <div id="tooltip"></div>
+      <div id="followtag" class="glass hidden"><span class="rec"></span><span id="followname">Seguindo</span><button class="btn small ghost" id="btn-unfollow">parar</button></div>
+
+      <!-- right: inspector -->
+      <aside id="side" class="glass sheet">
+        <div class="sheet-head">
+          <div class="tabs seg">
+            <button data-tab="agent" class="on">Indivíduo</button>
+            <button data-tab="society">Sociedade</button>
+          </div>
+          <button class="btn icon ghost" id="btn-side" title="Recolher painel (I)"><i data-icon="panelr" data-size="16"></i></button>
         </div>
         <div id="panel-agent" class="panel"></div>
         <div id="panel-society" class="panel hidden"></div>
       </aside>
+      <button id="side-open" class="glass btn-float hidden" title="Abrir painel (I)"><i data-icon="panell" data-size="16"></i></button>
 
-      <section id="bottom">
+      <!-- bottom: data drawer -->
+      <section id="bottom" class="glass sheet collapsed">
         <div id="charts"></div>
+        <div id="ticker" title="Último acontecimento"><span class="tk-dot"></span><span id="ticker-text">—</span></div>
         <div id="feed">
           <div class="feedhead">
             <strong>Crônica</strong>
@@ -111,12 +153,20 @@
           </div>
           <ul id="events"></ul>
         </div>
+        <button class="btn icon ghost" id="btn-drawer" title="Expandir gráficos e crônica"><i data-icon="up" data-size="16"></i></button>
       </section>
     </div>
 
     <div id="intro" class="hidden" role="dialog" aria-modal="true" aria-labelledby="intro-title"></div>
     <div id="modal" class="hidden"><div class="box" id="modalbox"></div></div>
 
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <filter id="liquid" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.009 0.014" numOctaves="2" seed="11" result="n" />
+        <feGaussianBlur in="n" stdDeviation="2.5" result="nb" />
+        <feDisplacementMap in="SourceGraphic" in2="nb" scale="34" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </svg>
     <script type="module" src="/src/ui/main.ts"></script>
   </body>
 </html>

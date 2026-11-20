@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import type { Simulation } from '../sim/sim';
+import type { Simulation, Shelter } from '../sim/sim';
 import type { Agent } from '../sim/agent';
-import { W, H, N_TILES, Terrain, TICKS_PER_DAY, NIGHT_START } from '../sim/types';
+import { W, H, N_TILES, Terrain, TICKS_PER_DAY, NIGHT_START, Act, STORE_CAP } from '../sim/types';
 import { mutualTrust, GROUP_TRUST } from '../sim/social';
 import { tileRGB, temperamentColor, hash, type ViewState, type WorldView } from './renderer';
 
@@ -14,6 +14,20 @@ const FX_RGB: Record<string, [number, number, number]> = {
   share: [0.37, 0.82, 0.65], trade: [0.91, 0.69, 0.29], talk: [0.47, 0.65, 1], steal: [0.89, 0.4, 0.36],
   caught: [1, 0.31, 0.27], refuse: [0.59, 0.59, 0.63], birth: [0.95, 0.65, 0.81], death: [0.78, 0.78, 0.78],
 };
+
+const BUBBLE_TEXT: Record<string, [string, string]> = {
+  share: ['doou comida a', 'doou comida'], trade: ['trocou com', 'fez uma troca'], talk: ['conversa com', 'puxou conversa'],
+  steal: ['roubou', 'roubou um estoque'], caught: ['flagrou', 'flagrou um ladrão'], refuse: ['recusou ajuda a', 'recusou ajuda'],
+  birth: ['nasceu', 'nasceu'], death: ['morreu', 'morreu'],
+};
+const BUBBLE_PRIORITY: Record<string, number> = { caught: 6, steal: 5, birth: 5, death: 5, trade: 3, share: 2, refuse: 1, talk: 0 };
+/** Colour of the small "intent" gem floating above each person, by family of action. */
+const ACT_GEM: Partial<Record<Act, string>> = {
+  [Act.Forage]: '#e0405f', [Act.Eat]: '#e0405f', [Act.Drink]: '#5fb4e8', [Act.Chop]: '#b7834f', [Act.Build]: '#e8c98a',
+  [Act.Deposit]: '#cdb68a', [Act.Withdraw]: '#cdb68a', [Act.Socialize]: '#79a7ff', [Act.Share]: '#5fd0a5', [Act.Ask]: '#9ddfc4',
+  [Act.Trade]: '#e8b04a', [Act.Steal]: '#ff5a4a', [Act.Court]: '#f3a6cf', [Act.Flee]: '#ffffff', [Act.Explore]: '#c9b2f5',
+};
+const MAX_AGENTS = 512;
 
 const tx = (tile: number) => (tile % W) + OX;
 const tz = (tile: number) => ((tile / W) | 0) + OZ;
@@ -54,6 +68,12 @@ export class Renderer3D implements WorldView {
   private dist = 80;
   private yaw = 0.0;
   private pitch = 0.95; // radians above the horizon
+  private targetY = 0;
+  private sky: THREE.Mesh;
+  private floor: THREE.Mesh;
+  /** Screen area covered by floating panels; the camera frames the free area between them. */
+  private insets = { l: 0, r: 0, t: 0, b: 0 };
+  private offs = { x: 0, y: 0 };
   private tween: { from: [number, number, number, number, number, number]; to: [number, number, number, number, number, number]; t0: number; dur: number } | null = null;
   private orbiting = false;
   private lastNow = 0;
@@ -72,7 +92,30 @@ export class Renderer3D implements WorldView {
   private houses: THREE.InstancedMesh;
   private roofs: THREE.InstancedMesh;
   private bodies: THREE.InstancedMesh;
+  private heads: THREE.InstancedMesh;
+  private packs: THREE.InstancedMesh;
+  private baskets: THREE.InstancedMesh;
+  private gems: THREE.InstancedMesh;
   private rings: THREE.InstancedMesh;
+  private doors: THREE.InstancedMesh;
+  private chimneys: THREE.InstancedMesh;
+  private logs: THREE.InstancedMesh;
+  private crates: THREE.InstancedMesh;
+  private granaries: THREE.InstancedMesh;
+  private granaryRoofs: THREE.InstancedMesh;
+  private scaffolds: THREE.InstancedMesh;
+  private stones: THREE.InstancedMesh;
+  private poles: THREE.InstancedMesh;
+  private flags: THREE.InstancedMesh;
+  private hearthFire: THREE.InstancedMesh;
+  private smoke: THREE.Points;
+  private smokePos: Float32Array;
+  private bubbleLayer: HTMLElement | null;
+  private bubbles: HTMLElement[] = [];
+  private tour = false;
+  private tourNext = 0;
+  private tourIdx = 0;
+  private keyMove = { f: 0, r: 0, rot: 0, zoom: 0 };
   private lines: THREE.LineSegments;
   private linePos: Float32Array;
   private lineCol: Float32Array;
@@ -98,6 +141,7 @@ export class Renderer3D implements WorldView {
   private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.08);
 
   constructor(public canvas: HTMLCanvasElement, private label: HTMLElement) {
+    this.bubbleLayer = document.getElementById('bubbles');
     this.gl = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.gl.outputColorSpace = THREE.SRGBColorSpace;
     this.gl.toneMapping = THREE.ACESFilmicToneMapping;
@@ -107,6 +151,18 @@ export class Renderer3D implements WorldView {
 
     const sc = this.scene;
     sc.background = new THREE.Color('#0d0c0a');
+    // sky dome: only visible when the camera drops low; from above the dark studio backdrop stays
+    this.sky = new THREE.Mesh(
+      new THREE.SphereGeometry(420, 32, 16),
+      new THREE.ShaderMaterial({
+        side: THREE.BackSide, depthWrite: false, fog: false,
+        uniforms: { top: { value: new THREE.Color('#2b4a6e') }, horizon: { value: new THREE.Color('#d9b48a') }, base: { value: new THREE.Color('#0d0c0a') }, mixv: { value: 0 } },
+        vertexShader: 'varying vec3 vp; void main(){ vp = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+        fragmentShader: 'uniform vec3 top; uniform vec3 horizon; uniform vec3 base; uniform float mixv; varying vec3 vp; void main(){ float h = clamp(vp.y,0.0,1.0); vec3 sky = mix(horizon, top, pow(h,0.55)); if (vp.y < 0.0) sky = horizon * 0.6; gl_FragColor = vec4(mix(base, sky, mixv), 1.0);\n#include <colorspace_fragment>\n}',
+      }),
+    );
+    this.sky.renderOrder = -10;
+    sc.add(this.sky);
     this.fog = new THREE.Fog('#0d0c0a', 120, 260);
     sc.fog = this.fog;
 
@@ -127,6 +183,7 @@ export class Renderer3D implements WorldView {
     base.receiveShadow = true;
     sc.add(base);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshStandardMaterial({ color: '#0d0c0a', roughness: 1 }));
+    this.floor = floor;
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -2.45;
     floor.receiveShadow = true;
@@ -182,9 +239,69 @@ export class Renderer3D implements WorldView {
     this.houses = mk(body, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.8 }), 512);
     this.roofs = mk(roof, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, flatShading: true }), 512);
 
-    const pawn = new THREE.CapsuleGeometry(0.24, 0.42, 4, 12);
-    pawn.translate(0, 0.45, 0);
-    this.bodies = mk(pawn, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4, metalness: 0.05, emissive: '#1a1712' }), 512);
+    // people: a rounded torso + a head, so they read as figures, not pills
+    const pawn = new THREE.CapsuleGeometry(0.17, 0.3, 4, 10);
+    pawn.translate(0, 0.33, 0);
+    this.bodies = mk(pawn, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.45, metalness: 0.05, emissive: '#1a1712' }), MAX_AGENTS);
+    const headGeo = new THREE.SphereGeometry(0.13, 14, 10);
+    headGeo.translate(0, 0.74, 0);
+    this.heads = mk(headGeo, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.55 }), MAX_AGENTS);
+    const pack = new THREE.BoxGeometry(0.34, 0.1, 0.1);
+    pack.translate(0, 0.44, -0.2);
+    this.packs = mk(pack, new THREE.MeshStandardMaterial({ color: '#8a5a32', roughness: 0.95 }), MAX_AGENTS);
+    const basket = new THREE.SphereGeometry(0.1, 8, 6);
+    basket.translate(0.2, 0.36, 0.06);
+    this.baskets = mk(basket, new THREE.MeshStandardMaterial({ color: '#e0405f', roughness: 0.5, emissive: '#3a0610' }), MAX_AGENTS);
+    const gem = new THREE.OctahedronGeometry(0.075, 0);
+    gem.translate(0, 1.08, 0);
+    this.gems = mk(gem, new THREE.MeshBasicMaterial({ color: '#ffffff' }), MAX_AGENTS, false);
+
+    // structures, all derived from shelter state (the simulation itself only knows shelters)
+    const door = new THREE.BoxGeometry(0.16, 0.26, 0.02);
+    door.translate(0, 0.13, 0.335);
+    this.doors = mk(door, new THREE.MeshStandardMaterial({ color: '#3a2618', roughness: 1 }), 512, false);
+    const chim = new THREE.BoxGeometry(0.1, 0.32, 0.1);
+    chim.translate(0.18, 0.72, -0.1);
+    this.chimneys = mk(chim, new THREE.MeshStandardMaterial({ color: '#6e6258', roughness: 1 }), 512);
+    const log = new THREE.CylinderGeometry(0.045, 0.045, 0.36, 6);
+    log.rotateZ(Math.PI / 2);
+    this.logs = mk(log, new THREE.MeshStandardMaterial({ color: '#a0703c', roughness: 0.95 }), 4096);
+    const crate = new THREE.BoxGeometry(0.2, 0.16, 0.2);
+    crate.translate(0, 0.08, 0);
+    this.crates = mk(crate, new THREE.MeshStandardMaterial({ color: '#b98a52', roughness: 0.9 }), 1024);
+    const gran = new THREE.CylinderGeometry(0.2, 0.22, 0.42, 10);
+    gran.translate(0, 0.21, 0);
+    this.granaries = mk(gran, new THREE.MeshStandardMaterial({ color: '#c9a56a', roughness: 0.85 }), 512);
+    const granRoof = new THREE.ConeGeometry(0.27, 0.22, 10);
+    granRoof.translate(0, 0.53, 0);
+    this.granaryRoofs = mk(granRoof, new THREE.MeshStandardMaterial({ color: '#8c3a2e', roughness: 0.9, flatShading: true }), 512);
+    this.scaffolds = mk(
+      new THREE.BoxGeometry(0.7, 0.62, 0.7).translate(0, 0.31, 0),
+      new THREE.MeshBasicMaterial({ color: '#e8c98a', wireframe: true, transparent: true, opacity: 0.75 }),
+      256,
+      false,
+    );
+    const stone = new THREE.DodecahedronGeometry(0.08, 0);
+    this.stones = mk(stone, new THREE.MeshStandardMaterial({ color: '#8d8679', roughness: 1, flatShading: true }), 2048);
+    const pole = new THREE.CylinderGeometry(0.025, 0.03, 1.5, 5);
+    pole.translate(0, 0.75, 0);
+    this.poles = mk(pole, new THREE.MeshStandardMaterial({ color: '#4a3424', roughness: 1 }), 64);
+    const flag = new THREE.PlaneGeometry(0.5, 0.3, 4, 1);
+    flag.translate(0.26, 1.32, 0);
+    this.flags = mk(flag, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.8, side: THREE.DoubleSide }), 64);
+    const hf = new THREE.ConeGeometry(0.14, 0.4, 5);
+    hf.translate(0, 0.2, 0);
+    this.hearthFire = mk(hf, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }), 64, false);
+
+    // chimney smoke (night, heated homes)
+    const SN = 900;
+    this.smokePos = new Float32Array(SN * 3).fill(-999);
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.BufferAttribute(this.smokePos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.smoke = new THREE.Points(sg, new THREE.PointsMaterial({ color: '#cfc6b8', size: 0.22, transparent: true, opacity: 0.32, depthWrite: false, map: this.glowTex }));
+    this.smoke.frustumCulled = false;
+    sc.add(this.smoke);
+
     const torus = new THREE.TorusGeometry(0.4, 0.055, 6, 28);
     torus.rotateX(Math.PI / 2);
     torus.translate(0, 0.03, 0);
@@ -240,13 +357,19 @@ export class Renderer3D implements WorldView {
     this.gl.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.gl.setSize(r.width, r.height, false);
     this.camera.aspect = r.width / r.height;
-    this.camera.updateProjectionMatrix();
+    this.camera.setViewOffset(r.width, r.height, this.offs.x, this.offs.y, r.width, r.height);
+  }
+
+  setInsets(l: number, r: number, t: number, b: number) {
+    this.insets = { l, r, t, b };
   }
 
   private fitDist() {
-    const aspect = this.width / Math.max(1, this.height);
+    const fw = Math.max(200, this.width - this.insets.l - this.insets.r);
+    const fh = Math.max(200, this.height - this.insets.t - this.insets.b);
     const vh = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
-    return Math.max((H * 1.12) / vh, (W * 1.16) / (vh * aspect));
+    // world height that fits in fh pixels, given the full-frame vertical fov
+    return Math.max((H * 1.1 * this.height) / (fh * vh), (W * 1.22 * this.height) / (fw * vh));
   }
 
   fit() {
@@ -284,6 +407,7 @@ export class Renderer3D implements WorldView {
 
   panBy(dx: number, dy: number) {
     this.tween = null;
+    this.tour = false;
     const k = this.unitsPerPx();
     const cos = Math.cos(this.yaw), sin = Math.sin(this.yaw);
     // screen right = (cos, -sin) on the ground; screen down = towards the camera
@@ -295,13 +419,14 @@ export class Renderer3D implements WorldView {
   orbit(dx: number, dy: number) {
     this.tween = null;
     this.yaw -= dx * 0.006;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.004, 0.32, 1.45);
+    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.004, 0.1, 1.45);
+    this.tour = false;
   }
 
   zoomAt(sx: number, sy: number, factor: number) {
     this.tween = null;
     const p = this.groundAt(sx, sy);
-    const nd = THREE.MathUtils.clamp(this.dist / factor, 6, this.fitDist() * 1.6);
+    const nd = THREE.MathUtils.clamp(this.dist / factor, 3.2, this.fitDist() * 1.6);
     const k = 1 - nd / this.dist;
     if (p) {
       this.target.x += (p.x - this.target.x) * k;
@@ -309,6 +434,91 @@ export class Renderer3D implements WorldView {
     }
     this.dist = nd;
     this.clampTarget();
+  }
+
+  /** Held-key navigation (WASD / arrows / Q E / + -), applied every frame. */
+  setKeys(f: number, r: number, rot: number, zoom: number) {
+    this.keyMove.f = f; this.keyMove.r = r; this.keyMove.rot = rot; this.keyMove.zoom = zoom;
+    if (f || r || rot || zoom) { this.tween = null; this.tour = false; }
+  }
+
+  private applyKeys(dt: number) {
+    const k = this.keyMove;
+    if (!k.f && !k.r && !k.rot && !k.zoom) return;
+    const sp = (this.dist * 0.9 + 4) * dt;
+    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
+    this.target.x += (-sin * k.f + cos * k.r) * sp;
+    this.target.z += (-cos * k.f - sin * k.r) * sp;
+    this.yaw += k.rot * dt * 1.4;
+    if (k.zoom) this.dist = THREE.MathUtils.clamp(this.dist * Math.exp(-k.zoom * dt * 1.6), 3.2, this.fitDist() * 1.6);
+    this.clampTarget();
+  }
+
+  /** Button steps: rotate by a fixed angle / zoom by a factor, animated. */
+  step(kind: 'in' | 'out' | 'left' | 'right') {
+    this.tour = false;
+    const yaw = this.yaw + (kind === 'left' ? 0.6 : kind === 'right' ? -0.6 : 0);
+    const dist = THREE.MathUtils.clamp(this.dist * (kind === 'in' ? 0.62 : kind === 'out' ? 1.6 : 1), 3.2, this.fitDist() * 1.6);
+    this.tween = { from: [this.target.x, this.target.z, this.dist, this.yaw, this.pitch, 0], to: [this.target.x, this.target.z, dist, yaw, this.pitch, 0], t0: performance.now(), dur: 650 };
+  }
+
+  /** Drop the camera to street level, looking across the land. */
+  groundView() {
+    this.tour = false;
+    const low = this.pitch < 0.4 && this.dist < 16;
+    this.tween = {
+      from: [this.target.x, this.target.z, this.dist, this.yaw, this.pitch, 0],
+      to: low ? [this.target.x, this.target.z, Math.max(30, this.dist), this.yaw, 0.85, 0] : [this.target.x, this.target.z, 9, this.yaw, 0.2, 0],
+      t0: performance.now(),
+      dur: 1300,
+    };
+    return !low;
+  }
+
+  /** Close follow framing for the person being followed. */
+  beginFollow(a: Agent) {
+    this.tour = false;
+    this.tween = { from: [this.target.x, this.target.z, this.dist, this.yaw, this.pitch, 0], to: [tx(a.tile), tz(a.tile), 11, this.yaw, 0.48, 0], t0: performance.now(), dur: 1100 };
+  }
+
+  setTour(on: boolean) {
+    this.tour = on;
+    this.tourNext = 0;
+    if (on) this.orbiting = false;
+  }
+  get touring() {
+    return this.tour;
+  }
+
+  /** Auto tour: glide between the places where society is happening. */
+  private updateTour(sim: Simulation, now: number) {
+    if (!this.tour) return;
+    if (!this.tween) this.yaw += 0.0016;
+    if (now < this.tourNext) return;
+    const spots: number[] = [];
+    for (const g of sim.groups) {
+      const m = g.members.map((id) => sim.byId.get(id)).find((a) => a?.alive);
+      if (m) spots.push(m.tile);
+    }
+    for (let i = sim.fx.length - 1; i >= 0 && spots.length < 14; i--) if (sim.fx[i].kind !== 'talk') spots.push(sim.fx[i].a);
+    for (const sh of sim.shelters) if (sh.alive && sh.owners.length && spots.length < 20) spots.push(sh.tile);
+    if (!spots.length && sim.alive.length) spots.push(sim.alive[(this.tourIdx * 7) % sim.alive.length].tile);
+    if (!spots.length) return;
+    const t = spots[this.tourIdx++ % spots.length];
+    const close = this.tourIdx % 3 !== 0;
+    this.tween = {
+      from: [this.target.x, this.target.z, this.dist, this.yaw, this.pitch, 0],
+      to: [tx(t), tz(t), close ? 10 + (this.tourIdx % 4) * 2 : 34, this.yaw + 0.9, close ? 0.3 + (this.tourIdx % 3) * 0.08 : 0.75, 0],
+      t0: now,
+      dur: 3200,
+    };
+    this.tourNext = now + 9500;
+  }
+
+  private terrainAt(x: number, z: number) {
+    const ix = Math.round(x - OX), iz = Math.round(z - OZ);
+    if (ix < 0 || iz < 0 || ix >= W || iz >= H) return 0;
+    return Math.max(0, this.top[iz * W + ix]);
   }
 
   private clampTarget() {
@@ -336,6 +546,7 @@ export class Renderer3D implements WorldView {
     const dt = Math.min(0.1, (now - (this.lastNow || now)) / 1000);
     this.lastNow = now;
     if (this.orbiting) this.yaw += dt * 0.06;
+    this.applyKeys(dt);
     if (this.tween) {
       const tw = this.tween;
       const k = easeInOut(Math.min(1, (now - tw.t0) / tw.dur));
@@ -343,13 +554,26 @@ export class Renderer3D implements WorldView {
       this.target.x = L(0); this.target.z = L(1); this.dist = L(2); this.yaw = L(3); this.pitch = L(4);
       if (k >= 1) this.tween = null;
     }
+    // shift the projection centre towards the middle of the unobstructed area
+    const ox = (this.insets.r - this.insets.l) / 2, oy = (this.insets.b - this.insets.t) / 2;
+    if (Math.abs(ox - this.offs.x) > 0.3 || Math.abs(oy - this.offs.y) > 0.3 || !this.camera.view) {
+      this.offs.x += (ox - this.offs.x) * 0.12;
+      this.offs.y += (oy - this.offs.y) * 0.12;
+      if (this.width && this.height) this.camera.setViewOffset(this.width, this.height, this.offs.x, this.offs.y, this.width, this.height);
+    }
+    // close up, look at the ground under the target instead of the map's base plane
+    const close = THREE.MathUtils.clamp((40 - this.dist) / 30, 0, 1);
+    this.targetY += (this.terrainAt(this.target.x, this.target.z) * close + 0.35 * close - this.targetY) * 0.1;
+    this.target.y = this.targetY;
     const cp = Math.cos(this.pitch);
-    this.camera.position.set(
-      this.target.x + Math.sin(this.yaw) * cp * this.dist,
-      this.target.y + Math.sin(this.pitch) * this.dist,
-      this.target.z + Math.cos(this.yaw) * cp * this.dist,
-    );
+    const px = this.target.x + Math.sin(this.yaw) * cp * this.dist;
+    const pz = this.target.z + Math.cos(this.yaw) * cp * this.dist;
+    const py = Math.max(this.target.y + Math.sin(this.pitch) * this.dist, this.terrainAt(px, pz) + 0.7);
+    this.camera.position.set(px, py, pz);
     this.camera.lookAt(this.target);
+    // fog pulls in at street level for depth, opens up from above
+    this.fog.near = 40 + this.dist * 1.2;
+    this.fog.far = 120 + this.dist * 2.4;
   }
 
   // ----------------------------------------------------------- picking --
@@ -475,14 +699,17 @@ export class Renderer3D implements WorldView {
       this.drawnSeason = season;
       this.lastTerrain = now;
     }
+    this.updateTour(sim, now);
     this.updateCamera(now);
     this.updateLight(sim, now);
     this.drawFire(sim, now);
-    this.drawShelters(sim);
+    this.drawShelters(sim, now);
+    this.drawSettlements(sim, now);
     this.drawAgents(sim, alpha, now);
     this.drawLines(sim, alpha, view);
     this.drawSelection(sim, alpha, view, now);
     this.drawWeather(sim, now);
+    this.drawBubbles(sim, view, now);
 
     if (view.brush) {
       const b = view.brush;
@@ -519,7 +746,16 @@ export class Renderer3D implements WorldView {
     this.hemi.color.set(winter ? '#e6eeff' : '#dfe8ff').lerp(new THREE.Color('#5d6f9e'), night);
     const bg = this.c.set(drought ? '#16110b' : '#0d0c0a').lerp(new THREE.Color('#070912'), night);
     (this.scene.background as THREE.Color).copy(bg);
-    this.fog.color.copy(bg);
+    // the lower the camera, the more it sees an actual sky (and haze in the sky's colour)
+    const skyK = THREE.MathUtils.clamp((0.75 - this.pitch) / 0.55, 0, 1) * THREE.MathUtils.clamp((70 - this.dist) / 40, 0, 1);
+    const su = (this.sky.material as THREE.ShaderMaterial).uniforms;
+    su.mixv.value = skyK;
+    su.base.value.copy(bg);
+    su.top.value.set(winter ? '#5d7898' : drought ? '#6e8fb0' : '#3f6d9e').lerp(new THREE.Color('#05070f'), night);
+    su.horizon.value.set(drought ? '#f0c58e' : winter ? '#dfe6ee' : '#e9cfa6').lerp(new THREE.Color('#1a2340'), night);
+    this.sky.position.copy(this.camera.position);
+    this.fog.color.copy(bg).lerp(su.horizon.value, skyK * 0.85);
+    (this.floor.material as THREE.MeshStandardMaterial).color.copy(bg).lerp(su.horizon.value, skyK * 0.35);
     const wm = this.water.material as THREE.MeshStandardMaterial;
     wm.opacity = 0.74 + Math.sin(now / 900) * 0.04;
 
@@ -558,59 +794,281 @@ export class Renderer3D implements WorldView {
     if (this.flames.instanceColor) this.flames.instanceColor.needsUpdate = true;
   }
 
-  private drawShelters(sim: Simulation) {
-    let n = 0;
+  private drawShelters(sim: Simulation, now: number) {
+    let n = 0, nl = 0, nc = 0, ng = 0, ns = 0;
+    const night = this.darkness(sim);
+    const SP = this.smokePos;
+    let sp = 0;
     for (const sh of sim.shelters) {
       if (!sh.alive || n >= 512) continue;
       const owner = sh.owners.length ? sim.byId.get(sh.owners[0]) : undefined;
       const g = owner && owner.group >= 0 ? sim.groups.find((x) => x.id === owner.group) : undefined;
-      this.m.compose(this.v.set(tx(sh.tile), this.top[sh.tile], tz(sh.tile)), this.q.identity(), this.s.set(1, 1, 1));
+      const x = tx(sh.tile), y = this.top[sh.tile], z = tz(sh.tile);
+      const rot = hash(sh.tile, 3) * Math.PI * 2;
+      this.q.setFromAxisAngle(this.v2(0, 1, 0), Math.round(rot / (Math.PI / 2)) * (Math.PI / 2));
+      this.m.compose(this.v.set(x, y, z), this.q, this.s.set(1, 1, 1));
       this.houses.setMatrixAt(n, this.m);
       this.roofs.setMatrixAt(n, this.m);
+      this.doors.setMatrixAt(n, this.m);
+      this.chimneys.setMatrixAt(n, this.m);
       this.houses.setColorAt(n, sh.owners.length ? this.c.set('#d8c39a') : this.c.set('#7d756a'));
       this.roofs.setColorAt(n, g ? this.c.setHSL(g.hue / 360, 0.45, 0.45, THREE.SRGBColorSpace) : this.c.set('#6b4a2e'));
+      this.doors.setColorAt(n, night > 0.2 && sh.wood > 0 && sh.owners.length ? this.c.set('#ffb15a') : this.c.set('#3a2618'));
+      this.chimneys.setColorAt(n, this.c.set('#6e6258'));
       n++;
+      // woodpile beside the house: one log per ~2.5 wood
+      const logs = Math.min(9, Math.ceil(sh.wood / 2.5));
+      for (let k = 0; k < logs && nl < 4096; k++) {
+        const row = k < 4 ? 0 : k < 7 ? 1 : 2, col = k < 4 ? k : k < 7 ? k - 4 : k - 7;
+        const off = this.v.set(-0.46, 0.05 + row * 0.085, -0.15 + col * 0.095 + row * 0.045).applyQuaternion(this.q);
+        this.m.compose(off.set(x + off.x, y + off.y, z + off.z), this.q, this.s.set(1, 1, 1));
+        this.logs.setMatrixAt(nl, this.m);
+        this.logs.setColorAt(nl, this.c.set(hash(sh.tile, k) > 0.5 ? '#a0703c' : '#8a5c30'));
+        nl++;
+      }
+      // food store: crates for a small stock, a granary once the household has real surplus
+      if (sh.food > STORE_CAP * 0.45 && ng < 512) {
+        const off = this.v.set(0.5, 0, 0.35).applyQuaternion(this.q);
+        const k = 0.8 + Math.min(0.5, sh.food / STORE_CAP / 3);
+        this.m.compose(off.set(x + off.x, y, z + off.z), this.q, this.s.set(k, k, k));
+        this.granaries.setMatrixAt(ng, this.m);
+        this.granaryRoofs.setMatrixAt(ng, this.m);
+        this.granaries.setColorAt(ng, this.c.set('#c9a56a'));
+        this.granaryRoofs.setColorAt(ng, g ? this.c.setHSL(g.hue / 360, 0.5, 0.4, THREE.SRGBColorSpace) : this.c.set('#8c3a2e'));
+        ng++;
+      } else {
+        const crates = Math.min(3, Math.ceil(sh.food / 5));
+        for (let k = 0; k < crates && nc < 1024; k++) {
+          const off = this.v.set(0.44, 0, 0.12 + k * 0.22).applyQuaternion(this.q);
+          this.m.compose(off.set(x + off.x, y + (k === 2 ? 0 : 0), z + off.z), this.q, this.s.set(1, 1, 1));
+          this.crates.setMatrixAt(nc, this.m);
+          this.crates.setColorAt(nc, this.c.set(k % 2 ? '#a77b48' : '#b98a52'));
+          nc++;
+        }
+      }
+      // chimney smoke from heated, inhabited homes
+      if (sh.wood > 0 && sh.owners.length && (night > 0.05 || sim.season() === 3) && sp < this.smokePos.length - 30) {
+        const c = this.v.set(0.18, 0.9, -0.1).applyQuaternion(this.q);
+        for (let k = 0; k < 10; k++) {
+          const t = ((now / 2600 + k / 10 + hash(sh.tile, 9)) % 1);
+          SP[sp++] = x + c.x + Math.sin(t * 5 + k) * 0.08 * t + t * 0.35;
+          SP[sp++] = y + c.y + t * 1.8;
+          SP[sp++] = z + c.z + Math.cos(t * 4 + k) * 0.08 * t;
+        }
+      }
     }
-    for (const im of [this.houses, this.roofs]) {
-      im.count = n;
+    while (sp < SP.length) SP[sp++] = -999;
+    (this.smoke.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+
+    // construction sites: scaffolding where someone is (going to be) building
+    for (const a of sim.alive) {
+      const it = a.intent;
+      if (!it || it.act !== Act.Build || ns >= 256) continue;
+      const atSite = a.tile === it.tile;
+      const k = atSite ? 1 : 0.85;
+      this.m.compose(this.v.set(tx(it.tile), this.top[it.tile], tz(it.tile)), this.q.identity(), this.s.set(k, atSite ? 1 : 0.4, k));
+      this.scaffolds.setMatrixAt(ns, this.m);
+      this.scaffolds.setColorAt(ns, this.c.set(atSite ? '#f0c878' : '#9c8a66'));
+      ns++;
+    }
+    const counts: [THREE.InstancedMesh, number][] = [
+      [this.houses, n], [this.roofs, n], [this.doors, n], [this.chimneys, n], [this.logs, nl], [this.crates, nc],
+      [this.granaries, ng], [this.granaryRoofs, ng], [this.scaffolds, ns],
+    ];
+    for (const [im, k] of counts) {
+      im.count = k;
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
   }
 
+  /** Each emergent group gets a hearth with a banner in its colour, at the heart of its members' homes. */
+  private drawSettlements(sim: Simulation, now: number) {
+    let nh = 0, nst = 0;
+    for (const g of sim.groups) {
+      if (nh >= 64) break;
+      let sx = 0, sz = 0, cnt = 0;
+      for (const id of g.members) {
+        const a = sim.byId.get(id);
+        if (!a?.alive) continue;
+        const t = a.home >= 0 && sim.shelters[a.home]?.alive ? sim.shelters[a.home].tile : a.tile;
+        sx += t % W; sz += (t / W) | 0; cnt++;
+      }
+      if (cnt < 2) continue;
+      let cx = Math.round(sx / cnt), cz = Math.round(sz / cnt);
+      // nudge off water / houses
+      let tile = cz * W + cx;
+      for (let r = 0; r < 4 && (sim.world.terrain[tile] === Terrain.Water || sim.shelters.some((s) => s.alive && s.tile === tile)); r++) {
+        cx = Math.min(W - 1, cx + 1); tile = cz * W + cx;
+      }
+      const x = tx(tile), y = Math.max(0, this.top[tile]), z = tz(tile);
+      this.m.compose(this.v.set(x + 0.32, y, z - 0.2), this.q.identity(), this.s.set(1, 1, 1));
+      this.poles.setMatrixAt(nh, this.m);
+      this.poles.setColorAt(nh, this.c.set('#4a3424'));
+      const wave = Math.sin(now / 420 + g.id) * 0.25;
+      this.q.setFromAxisAngle(this.v2(0, 1, 0), wave + 0.4);
+      this.m.compose(this.v.set(x + 0.32, y, z - 0.2), this.q, this.s.set(1, 1, 1));
+      this.flags.setMatrixAt(nh, this.m);
+      this.flags.setColorAt(nh, this.c.setHSL(g.hue / 360, 0.65, 0.55, THREE.SRGBColorSpace));
+      const f = 0.75 + 0.25 * Math.sin(now / 90 + g.id * 3);
+      this.m.compose(this.v.set(x, y, z), this.q.setFromAxisAngle(this.v2(0, 1, 0), now / 300), this.s.set(f, 0.7 + f * 0.6, f));
+      this.hearthFire.setMatrixAt(nh, this.m);
+      this.hearthFire.setColorAt(nh, this.c.setRGB(1, 0.45 + f * 0.25, 0.12));
+      nh++;
+      for (let k = 0; k < 9 && nst < 2048; k++) {
+        const ang = (k / 9) * Math.PI * 2;
+        this.m.compose(this.v.set(x + Math.cos(ang) * 0.24, y + 0.03, z + Math.sin(ang) * 0.24), this.q.setFromAxisAngle(this.v2(0, 1, 0), k), this.s.set(1, 0.8, 1));
+        this.stones.setMatrixAt(nst, this.m);
+        this.stones.setColorAt(nst, this.c.set(k % 2 ? '#8d8679' : '#7a746a'));
+        nst++;
+      }
+    }
+    for (const [im, k] of [[this.poles, nh], [this.flags, nh], [this.hearthFire, nh], [this.stones, nst]] as const) {
+      im.count = k;
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
+  }
+
+  /** Structure under the cursor (houses only), for the tooltip. */
+  pickShelter(sim: Simulation, sx: number, sy: number): Shelter | null {
+    let best: Shelter | null = null;
+    let bd = Math.max(16, Math.min(46, 900 / this.dist)) ** 2;
+    for (const sh of sim.shelters) {
+      if (!sh.alive) continue;
+      const p = this.project(tx(sh.tile), this.top[sh.tile] + 0.4, tz(sh.tile));
+      if (p.behind) continue;
+      const d = (p.x - sx) ** 2 + (p.y - sy) ** 2;
+      if (d < bd) { bd = d; best = sh; }
+    }
+    return best;
+  }
+
   private drawAgents(sim: Simulation, alpha: number, now: number) {
     const groupHue = new Map(sim.groups.map((g) => [g.id, g.hue]));
-    let n = 0, nr = 0;
+    let n = 0, nr = 0, np = 0, nb = 0;
+    const showGems = this.dist < 60;
     for (const a of sim.alive) {
-      if (n >= 512) break;
+      if (n >= MAX_AGENTS) break;
       const p = this.agentXZ(a, alpha);
       const moving = a.prevTile !== a.tile;
       const bob = moving ? Math.abs(Math.sin(now / 110 + a.id)) * 0.07 : 0;
       const sc = a.isAdult(sim.tick) ? 1 : 0.68;
       const dx = tx(a.tile) - tx(a.prevTile), dz = tz(a.tile) - tz(a.prevTile);
-      const lean = moving ? 0.12 : 0;
-      this.q.setFromEuler(new THREE.Euler(dz * lean, 0, -dx * lean));
-      this.m.compose(this.v.set(p.x, p.y + bob, p.z), this.q, this.s.set(sc, sc, sc));
+      const act = a.intent?.act;
+      // face where they walk; otherwise keep a stable personal heading
+      const heading = moving ? Math.atan2(dx, dz) : hash(a.id, 5) * Math.PI * 2;
+      const resting = act === Act.Rest && !moving;
+      const lean = moving ? 0.14 : 0;
+      this.q.setFromEuler(new THREE.Euler(resting ? -1.35 : lean, heading, 0, 'YXZ'));
+      const ry = resting ? 0.12 : 0;
+      this.m.compose(this.v.set(p.x, p.y + bob + ry, p.z), this.q, this.s.set(sc, sc, sc));
       this.bodies.setMatrixAt(n, this.m);
+      this.heads.setMatrixAt(n, this.m);
       this.c.set(temperamentColor(a));
       if (a.sick > 0) this.c.lerp(new THREE.Color('#9be05a'), 0.45);
       if (a.health < 0.4) this.c.multiplyScalar(0.55 + a.health);
       this.bodies.setColorAt(n, this.c);
+      this.heads.setColorAt(n, this.c.set(a.sick > 0 ? '#c6dca6' : '#e9d6bf'));
+      if (a.wood >= 1 && np < MAX_AGENTS) { this.packs.setMatrixAt(np, this.m); this.packs.setColorAt(np, this.c.set('#8a5a32')); np++; }
+      if (a.food >= 2 && nb < MAX_AGENTS) { this.baskets.setMatrixAt(nb, this.m); this.baskets.setColorAt(nb, this.c.set('#e0405f')); nb++; }
       n++;
       const hue = groupHue.get(a.group);
       if (hue !== undefined) {
-        this.m.compose(this.v.set(p.x, p.y, p.z), this.q.identity(), this.s.set(sc, 1, sc));
+        this.m.compose(this.v.set(p.x, p.y, p.z), this.q.identity(), this.s.set(sc * 0.8, 1, sc * 0.8));
         this.rings.setMatrixAt(nr, this.m);
         this.rings.setColorAt(nr, this.c.setHSL(hue / 360, 0.72, 0.62, THREE.SRGBColorSpace));
         nr++;
       }
     }
-    this.bodies.count = n;
-    this.rings.count = nr;
-    for (const im of [this.bodies, this.rings]) {
+    // intent gems: a tiny spinning marker above each head, coloured by what they are doing
+    let ng = 0;
+    if (showGems) {
+      for (const a of sim.alive) {
+        if (ng >= MAX_AGENTS) break;
+        const col = a.intent ? ACT_GEM[a.intent.act] : undefined;
+        if (!col) continue;
+        const p = this.agentXZ(a, alpha);
+        const sc = a.isAdult(sim.tick) ? 1 : 0.68;
+        this.q.setFromAxisAngle(this.v2(0, 1, 0), now / 500 + a.id);
+        this.m.compose(this.v.set(p.x, p.y + Math.sin(now / 400 + a.id) * 0.03, p.z), this.q, this.s.set(sc, sc, sc));
+        this.gems.setMatrixAt(ng, this.m);
+        this.gems.setColorAt(ng, this.c.set(col));
+        ng++;
+      }
+    }
+    const counts: [THREE.InstancedMesh, number][] = [[this.bodies, n], [this.heads, n], [this.rings, nr], [this.packs, np], [this.baskets, nb], [this.gems, ng]];
+    for (const [im, k] of counts) {
+      im.count = k;
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
+  }
+
+  /** Speech-bubble style captions for live interactions: "Ana doou comida a Beto". */
+  private drawBubbles(sim: Simulation, view: ViewState, now: number) {
+    const layer = this.bubbleLayer;
+    if (!layer) return;
+    const on = view.showBubbles !== false && !this.orbiting;
+    const picks: { text: string; col: [number, number, number]; x: number; y: number; k: number; pri: number; big: boolean }[] = [];
+    if (on) {
+      // fx store tiles, not people: name whoever is (still) closest to that spot
+      const near = (t: number, not?: string) => {
+        const x = t % W, y = (t / W) | 0;
+        let best: string | undefined, bd = 3;
+        for (const a of sim.alive) {
+          const d = Math.abs((a.tile % W) - x) + Math.abs(((a.tile / W) | 0) - y);
+          if (d < bd && a.name !== not) { bd = d; best = a.name; }
+        }
+        return best;
+      };
+      const zoomed = this.dist < 38;
+      for (let i = sim.fx.length - 1; i >= 0; i--) {
+        const f = sim.fx[i];
+        const age = sim.tick - f.tick;
+        if (age > FX_LIFE) break;
+        const pri = BUBBLE_PRIORITY[f.kind] ?? 0;
+        if (!zoomed && pri < 4) continue;
+        const A = near(f.a), B = f.a !== f.b ? near(f.b, A) : undefined;
+        let text: string;
+        const T = BUBBLE_TEXT[f.kind];
+        if (f.kind === 'birth') text = 'Nasceu um bebê';
+        else if (f.kind === 'death') text = 'Uma vida chegou ao fim';
+        else if (!A) continue;
+        else text = B ? `${A} ${T[0]} ${B}` : `${A} ${T[1]}`;
+        const mx = (tx(f.a) + tx(f.b)) / 2, mz = (tz(f.a) + tz(f.b)) / 2;
+        const my = Math.max(this.top[f.a], this.top[f.b], 0) + 1.5 + (1 - age / FX_LIFE) * 0.2;
+        const s2 = this.project(mx, my, mz);
+        if (s2.behind || s2.x < 0 || s2.y < 0 || s2.x > this.width || s2.y > this.height) continue;
+        picks.push({ text, col: FX_RGB[f.kind], x: s2.x, y: s2.y, k: 1 - age / FX_LIFE, pri, big: pri >= 4 });
+      }
+      picks.sort((p, q) => q.pri - p.pri || q.k - p.k);
+    }
+    const MAXB = 9;
+    while (this.bubbles.length < MAXB) {
+      const el = document.createElement('div');
+      el.className = 'bub';
+      el.innerHTML = '<i></i><span></span>';
+      layer.appendChild(el);
+      this.bubbles.push(el);
+    }
+    const placed: { x: number; y: number }[] = [];
+    let used = 0;
+    for (const p of picks) {
+      if (used >= MAXB) break;
+      if (placed.some((q) => Math.abs(q.x - p.x) < 120 && Math.abs(q.y - p.y) < 22)) continue;
+      placed.push(p);
+      const el = this.bubbles[used++];
+      const span = el.lastChild as HTMLElement;
+      if (span.textContent !== p.text) span.textContent = p.text;
+      (el.firstChild as HTMLElement).style.background = `rgb(${p.col.map((v) => Math.round(v * 255)).join(',')})`;
+      el.classList.toggle('big', p.big);
+      el.style.display = 'flex';
+      el.style.opacity = String(Math.min(1, p.k * 2.2));
+      el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%)`;
+    }
+    for (let i = used; i < this.bubbles.length; i++) this.bubbles[i].style.display = 'none';
+    void now;
   }
 
   private nl = 0;

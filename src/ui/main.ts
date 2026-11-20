@@ -23,7 +23,7 @@ const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySele
 type Tool = 'observe' | 'plant' | 'gift' | 'clear' | 'forest' | 'water' | 'fire' | 'spawn' | 'disease';
 const BRUSH_TOOLS = new Set<Tool>(['plant', 'clear', 'forest', 'water']);
 const TOOL_HINT: Record<Tool, string> = {
-  observe: 'Clique em um indivíduo para inspecioná-lo · arraste para mover · roda para zoom · botão direito gira a câmera (3D)',
+  observe: 'Clique em alguém para inspecionar · arraste para mover · WASD anda · Q/E gira · G visão do chão · T passeio',
   plant: 'Arraste para plantar arbustos de frutas',
   gift: 'Clique para lançar uma dádiva de comida no chão',
   clear: 'Arraste para remover vegetação',
@@ -48,7 +48,9 @@ class App implements PanelHost {
   speed = 1;
   tool: Tool = 'observe';
   follow = false;
-  view: ViewState = { selected: null, hovered: null, showNet: false, showGlyphs: true, brush: null };
+  view: ViewState = { selected: null, hovered: null, showNet: false, showGlyphs: true, showBubbles: true, brush: null };
+  private keys = new Set<string>();
+  private fps = { frames: 0, t0: 0, low: 0 };
   private acc = 0;
   private last = performance.now();
   private lastPanel = 0;
@@ -65,6 +67,9 @@ class App implements PanelHost {
     // a tested, balanced world for the first impression; "Novo mundo" picks random seeds
     this.cfg = defaultConfig(314);
     hydrateIcons();
+    const brands = (navigator as any).userAgentData?.brands as { brand: string }[] | undefined;
+    if (brands?.some((b) => /Chromium|Chrome|Edge/.test(b.brand))) document.body.classList.add('liquid');
+    if (window.innerWidth < 1200) document.body.classList.add('side-closed');
     this.r2d = new Renderer($('#world') as HTMLCanvasElement);
     this.r3d = createRenderer3D($('#world3d') as HTMLCanvasElement, $('#label3d'));
     this.renderer = this.r3d ?? this.r2d;
@@ -97,6 +102,21 @@ class App implements PanelHost {
   private resizeAll() {
     this.r2d.resize();
     this.r3d?.resize();
+    this.updateInsets();
+  }
+  /** Tell the 3D camera which parts of the screen are covered by floating panels. */
+  private updateInsets() {
+    if (!this.r3d) return;
+    const cs = getComputedStyle(document.body);
+    const px = (v: string) => parseFloat(cs.getPropertyValue(v)) || 0;
+    const gap = px('--gap');
+    const intro = document.body.classList.contains('intro-open');
+    const sideOpen = !document.body.classList.contains('side-closed');
+    const right = intro ? 0 : sideOpen ? px('--side-w') + gap * 2 : 0;
+    const left = intro ? 0 : px('--dock-w') + gap * 2;
+    const top = intro ? 0 : px('--bar-h') + gap;
+    const bottom = intro ? 0 : (document.body.classList.contains('drawer-open') ? 268 : 54) + gap;
+    this.r3d.setInsets(left, right, top, bottom);
   }
 
   private applyMode() {
@@ -106,6 +126,9 @@ class App implements PanelHost {
     $('#label3d').style.display = 'none';
     document.querySelectorAll('#viewmode button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.mode === this.mode));
     $('#ov-glyph').closest('label')!.classList.toggle('hidden', this.renderer !== this.r2d);
+    $('#ov-bubbles').closest('label')!.classList.toggle('hidden', this.renderer === this.r2d);
+    $('#bubbles').classList.toggle('hidden', this.renderer === this.r2d);
+    document.querySelectorAll<HTMLElement>('#camnav [data-cam=left], #camnav [data-cam=right], #camnav [data-cam=ground], #camnav [data-cam=tour]').forEach((b) => b.classList.toggle('hidden', this.renderer === this.r2d));
     this.renderer.resize();
     if (this.renderer === this.r2d && !(this.r2d.cam.zoom > 0.01)) this.r2d.fit();
   }
@@ -137,13 +160,26 @@ class App implements PanelHost {
     this.agentPanel.setAgent(id);
     if (id !== null) {
       this.setTab('agent');
+      this.setSide(true);
       const a = this.sim.byId.get(id);
       if (a && center) this.renderer.centerOn(a.tile);
     } else this.follow = false;
+    this.updateFollowTag();
     this.agentPanel.update();
   }
   setFollow(v: boolean) {
     this.follow = v;
+    const a = this.view.selected !== null ? this.sim.byId.get(this.view.selected) : undefined;
+    if (v && a?.alive) {
+      this.r3d?.beginFollow(a);
+      if (this.renderer === this.r2d) this.renderer.centerOn(a.tile);
+    }
+    this.updateFollowTag();
+  }
+  private updateFollowTag() {
+    const a = this.follow && this.view.selected !== null ? this.sim.byId.get(this.view.selected) : undefined;
+    $('#followtag').classList.toggle('hidden', !a?.alive);
+    if (a) $('#followname').innerHTML = `Seguindo <b>${a.name}</b>`;
   }
 
   // ---------------------------------------------------------------- loop --
@@ -162,9 +198,12 @@ class App implements PanelHost {
       if (n >= max) this.acc = 0;
     }
     const alpha = this.paused ? 1 : Math.min(1, this.acc);
+    this.applyKeys();
+    this.watchFps(now);
     if (this.follow && this.view.selected !== null) {
       const a = this.sim.byId.get(this.view.selected);
       if (a?.alive) this.renderer.follow(a, alpha);
+      else { this.follow = false; this.updateFollowTag(); }
     }
     this.renderer.draw(this.sim, alpha, this.view, now);
     if (now - this.lastPanel > 250) {
@@ -189,7 +228,7 @@ class App implements PanelHost {
 
   private updateTop() {
     const s = this.sim;
-    $('#date').textContent = `${s.dateLabel()} · ${s.isNight() ? 'noite' : 'dia'}`;
+    $('#date').innerHTML = `${s.dateLabel()} <span class="tod">${s.isNight() ? 'noite' : 'dia'}</span>`;
     const cl = $('#climate');
     if (s.climate) {
       const left = Math.ceil((s.climate.until - s.tick) / 100);
@@ -202,8 +241,9 @@ class App implements PanelHost {
       cl.textContent = '';
       cl.className = 'pill hidden';
     }
-    $('#popcount').textContent = `${s.alive.length} vivos · ${s.groups.length} grupo${s.groups.length === 1 ? '' : 's'}`;
+    $('#popcount').innerHTML = `<b>${s.alive.length}</b> vivos · <b>${s.groups.length}</b> grupo${s.groups.length === 1 ? '' : 's'} · <b>${s.shelters.filter((x) => x.alive).length}</b> casas`;
     $('#cl-winter').classList.toggle('lit', s.harshWinter);
+    $('#btn-climate').classList.toggle('lit', s.harshWinter || !!s.climate);
     $('#cl-drought').classList.toggle('lit', !!s.climate && s.climate.rain < 1);
     $('#cl-deluge').classList.toggle('lit', !!s.climate && s.climate.rain > 1);
   }
@@ -227,6 +267,14 @@ class App implements PanelHost {
       // keep the "all" feed readable: shares are frequent, show only some
       if (!allow && e.kind === 'share' && i % 3 !== 0) continue;
       out.push(e);
+    }
+    const top = ev[ev.length - 1];
+    const tk = $('#ticker-text');
+    if (top && tk.textContent !== top.text) {
+      tk.textContent = top.text;
+      tk.classList.remove('flash');
+      void tk.offsetWidth;
+      tk.classList.add('flash');
     }
     const fresh = this.feedSeen;
     this.feedSeen = ev.length;
@@ -259,6 +307,74 @@ class App implements PanelHost {
     document.querySelectorAll('.tool[data-tool]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tool === t));
     $('#viewport').classList.toggle('painting', t !== 'observe');
     this.hint(TOOL_HINT[t]);
+    const opts = $('#toolopts');
+    const brush = BRUSH_TOOLS.has(t), spawn = t === 'spawn';
+    opts.classList.toggle('hidden', !brush && !spawn);
+    opts.querySelector('.brushrow')!.classList.toggle('hidden', !brush);
+    opts.querySelector('.presetrow')!.classList.toggle('hidden', !spawn);
+    $('#toolopts-title').textContent = brush ? 'Pincel' : 'Novo indivíduo';
+    const btn = document.querySelector<HTMLElement>(`.tool[data-tool=${t}]`);
+    if (btn && (brush || spawn)) opts.style.top = `${btn.getBoundingClientRect().top - 6}px`;
+    if (brush || spawn) this.closeMenus('#toolopts');
+  }
+
+  // ------------------------------------------------------- floating UI --
+  private closeMenus(except = '') {
+    for (const id of ['#menu-more', '#legend', '#climatebox']) if (id !== except) $(id).classList.add('hidden');
+    $('#btn-more').setAttribute('aria-expanded', 'false');
+    $('#btn-climate').setAttribute('aria-expanded', String(except === '#climatebox'));
+  }
+  private toggleMenu(id: string) {
+    const open = $(id).classList.contains('hidden');
+    this.closeMenus(open ? id : '');
+    $(id).classList.toggle('hidden', !open);
+    if (id === '#menu-more') $('#btn-more').setAttribute('aria-expanded', String(open));
+    if (id === '#climatebox' && open) $('#climatebox').style.top = `${$('#btn-climate').getBoundingClientRect().top - 6}px`;
+  }
+  setSide(open: boolean) {
+    document.body.classList.toggle('side-closed', !open);
+    this.updateInsets();
+    $('#side-open').classList.toggle('hidden', open);
+    window.setTimeout(() => this.charts.update(this.sim, true), 560);
+  }
+  private setDrawer(open: boolean) {
+    document.body.classList.toggle('drawer-open', open);
+    $('#bottom').classList.toggle('collapsed', !open);
+    this.updateInsets();
+    window.setTimeout(() => this.charts.update(this.sim, true), 600);
+  }
+
+  /** Held keys → continuous camera motion (3D) or panning (map). */
+  private applyKeys() {
+    const k = this.keys;
+    const f = (k.has('w') || k.has('arrowup') ? 1 : 0) - (k.has('s') || k.has('arrowdown') ? 1 : 0);
+    const r = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0);
+    const rot = (k.has('q') ? 1 : 0) - (k.has('e') ? 1 : 0);
+    const zoom = (k.has('+') || k.has('=') ? 1 : 0) - (k.has('-') || k.has('_') ? 1 : 0);
+    if (this.renderer === this.r3d) {
+      this.r3d.setKeys(f, r, rot, zoom);
+    } else if (f || r || zoom) {
+      this.r2d.panBy(-r * 9, f * 9);
+      if (zoom) this.r2d.zoomAt(this.r2d.width / 2, this.r2d.height / 2, zoom > 0 ? 1.03 : 0.97);
+    }
+    if ((f || r) && this.follow) { this.follow = false; this.updateFollowTag(); }
+    $('#camnav [data-cam=tour]').classList.toggle('on', !!this.r3d?.touring);
+  }
+
+  /** If the machine can't keep up, trade the blur for an opaque glass tint. */
+  private watchFps(now: number) {
+    const f = this.fps;
+    if (!f.t0) f.t0 = now;
+    f.frames++;
+    if (now - f.t0 < 2000) return;
+    const fps = (f.frames * 1000) / (now - f.t0);
+    f.frames = 0; f.t0 = now;
+    if (document.hidden || !$('#intro').classList.contains('hidden')) return;
+    f.low = fps < 28 ? f.low + 1 : 0;
+    if (f.low >= 3 && !document.body.classList.contains('lowfx')) {
+      document.body.classList.add('lowfx');
+      document.body.classList.remove('liquid');
+    }
   }
 
   private setSpeed(s: number) {
@@ -299,6 +415,22 @@ class App implements PanelHost {
     $('#ov-net').addEventListener('change', (e) => (this.view.showNet = (e.target as HTMLInputElement).checked));
     $('#ov-glyph').addEventListener('change', (e) => (this.view.showGlyphs = (e.target as HTMLInputElement).checked));
 
+    $('#btn-more').addEventListener('click', (e) => { e.stopPropagation(); this.toggleMenu('#menu-more'); });
+    $('#btn-legend').addEventListener('click', (e) => { e.stopPropagation(); this.toggleMenu('#legend'); });
+    $('#btn-climate').addEventListener('click', (e) => { e.stopPropagation(); this.toggleMenu('#climatebox'); });
+    for (const id of ['#menu-more', '#legend', '#climatebox', '#toolopts', '#btn-more', '#btn-legend', '#btn-climate']) $(id).addEventListener('pointerdown', (e) => e.stopPropagation());
+    window.addEventListener('pointerdown', () => this.closeMenus());
+    $('#menu-more').addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button')) this.closeMenus(); });
+    $('#btn-side').addEventListener('click', () => this.setSide(false));
+    $('#side-open').addEventListener('click', () => this.setSide(true));
+    $('#btn-drawer').addEventListener('click', () => this.setDrawer(!document.body.classList.contains('drawer-open')));
+    $('#ticker').addEventListener('click', () => this.setDrawer(true));
+    $('#btn-unfollow').addEventListener('click', () => { this.follow = false; this.updateFollowTag(); this.agentPanel.update(); });
+    $('#ov-bubbles').addEventListener('change', (e) => (this.view.showBubbles = (e.target as HTMLInputElement).checked));
+    document.querySelectorAll<HTMLElement>('#camnav [data-cam]').forEach((b) =>
+      b.addEventListener('click', () => this.camAction(b.dataset.cam!)),
+    );
+
     $('#btn-new').addEventListener('click', () => this.showNewWorld());
     $('#btn-replay').addEventListener('click', () => {
       this.newWorld({ ...this.cfg, flags: { ...this.cfg.flags } });
@@ -336,6 +468,7 @@ class App implements PanelHost {
       const r = cv.getBoundingClientRect();
       Object.assign(this.mouse, { x: e.clientX - r.left, y: e.clientY - r.top, down: true, button: e.button, dragX: e.clientX, dragY: e.clientY, moved: false, painted: false });
       cv.setPointerCapture(e.pointerId);
+      if (this.r3d?.touring) this.r3d.setTour(false);
       if (e.button === 0 && !e.shiftKey && this.tool !== 'observe') this.applyTool(this.mouse.x, this.mouse.y, true);
     });
     cv.addEventListener('pointermove', (e) => {
@@ -382,22 +515,68 @@ class App implements PanelHost {
         if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); this.closeIntro(); }
         return;
       }
+      if (e.target instanceof HTMLSelectElement) return;
+      const key = e.key.toLowerCase();
+      if (['w', 'a', 's', 'd', 'q', 'e', '+', '=', '-', '_', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        e.preventDefault();
+        this.keys.add(key);
+        return;
+      }
       if (e.key === ' ') { e.preventDefault(); this.togglePause(); }
       else if (e.key >= '1' && e.key <= '4') this.setSpeed([1, 3, 10, 30][Number(e.key) - 1]);
-      else if (e.key === 'Escape') { this.setTool('observe'); this.select(null); }
-      else if (e.key === 'f' && this.view.selected !== null) this.follow = !this.follow;
-      else if (e.key === 'r') this.renderer.fit();
-      else if (e.key === 'v') this.setMode(this.mode === '3d' ? '2d' : '3d');
+      else if (e.key === 'Escape') { this.closeMenus(); this.setTool('observe'); this.select(null); }
+      else if (key === 'f' && this.view.selected !== null) { this.setFollow(!this.follow); this.agentPanel.update(); }
+      else if (key === 'r') this.camAction('fit');
+      else if (key === 'g') this.camAction('ground');
+      else if (key === 't') this.camAction('tour');
+      else if (key === 'i') this.setSide(document.body.classList.contains('side-closed'));
+      else if (key === 'v') this.setMode(this.mode === '3d' ? '2d' : '3d');
     });
+    window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
+    window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  private camAction(kind: string) {
+    const r3 = this.renderer === this.r3d ? this.r3d : null;
+    switch (kind) {
+      case 'in': case 'out':
+        if (r3) r3.step(kind);
+        else this.r2d.zoomAt(this.r2d.width / 2, this.r2d.height / 2, kind === 'in' ? 1.5 : 1 / 1.5);
+        break;
+      case 'left': case 'right': r3?.step(kind); break;
+      case 'ground':
+        if (r3) this.hint(r3.groundView() ? 'Visão do chão: WASD para andar, Q/E para girar, G para voltar' : 'Voltando à visão aérea');
+        break;
+      case 'tour':
+        if (r3) {
+          r3.setTour(!r3.touring);
+          if (r3.touring) { this.follow = false; this.updateFollowTag(); this.hint('Passeio automático pelos lugares onde a sociedade acontece · clique ou mova para parar'); }
+        }
+        break;
+      case 'fit':
+        r3?.setTour(false);
+        this.follow = false;
+        this.updateFollowTag();
+        this.renderer.fit();
+        break;
+    }
   }
 
   private updateTooltip(x: number, y: number) {
     const tt = $('#tooltip');
     const a = this.renderer.pickAgent(this.sim, x, y, Math.min(1, this.acc));
     this.view.hovered = a ? a.id : null;
-    if (!a || this.mouse.down) { tt.style.display = 'none'; return; }
-    const g = this.sim.groups.find((x) => x.id === a.group);
-    tt.innerHTML = `<b>${a.name}</b>${g ? ` · ${g.name}` : ''}<small>${this.sim.actLabel(a)}</small>`;
+    if (this.mouse.down) { tt.style.display = 'none'; return; }
+    if (a) {
+      const g = this.sim.groups.find((x) => x.id === a.group);
+      tt.innerHTML = `<b>${a.name}</b>${g ? ` · ${g.name}` : ''}<small>${this.sim.actLabel(a)}</small>`;
+    } else {
+      const sh = this.renderer.pickShelter?.(this.sim, x, y);
+      if (!sh) { tt.style.display = 'none'; return; }
+      const names = sh.owners.map((id) => this.sim.byId.get(id)?.name).filter(Boolean);
+      const kind = sh.food > 18 ? 'Casa com celeiro' : 'Casa';
+      tt.innerHTML = `<b>${kind}</b>${names.length ? ` de ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}` : ' abandonada'}<small>comida estocada ${sh.food.toFixed(0)} · lenha ${sh.wood.toFixed(0)}</small>`;
+    }
     tt.style.display = 'block';
     tt.style.left = `${x + 14}px`;
     tt.style.top = `${y + 10}px`;
@@ -480,6 +659,7 @@ class App implements PanelHost {
     el.querySelector('[data-x]')!.addEventListener('click', () => this.closeIntro());
     el.classList.remove('hidden', 'leaving');
     document.body.classList.add('intro-open');
+    this.updateInsets();
     this.r3d?.setCinematic(true);
     (el.querySelector('[data-x]') as HTMLElement).focus({ preventScroll: true });
   }
@@ -489,6 +669,7 @@ class App implements PanelHost {
     if (el.classList.contains('hidden') || el.classList.contains('leaving')) return;
     el.classList.add('leaving');
     document.body.classList.remove('intro-open');
+    this.updateInsets();
     this.r3d?.setCinematic(false);
     try { sessionStorage.setItem('emergence-intro', '1'); } catch { /* ignore */ }
     window.setTimeout(() => { el.classList.add('hidden'); el.classList.remove('leaving'); this.hint(TOOL_HINT.observe); }, 650);
@@ -530,4 +711,4 @@ class App implements PanelHost {
   }
 }
 
-new App();
+(window as any).emergence = new App();
