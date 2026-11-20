@@ -19,7 +19,24 @@ export interface ViewState {
   brush: { tile: number; radius: number } | null;
 }
 
-function hash(i: number, k: number) {
+/** What the app needs from a world view; implemented by the 2D and 3D renderers. */
+export interface WorldView {
+  canvas: HTMLCanvasElement;
+  width: number;
+  height: number;
+  resize(): void;
+  fit(): void;
+  screenToTile(sx: number, sy: number): number;
+  pickAgent(sim: Simulation, sx: number, sy: number, alpha: number): Agent | null;
+  zoomAt(sx: number, sy: number, factor: number): void;
+  panBy(dx: number, dy: number): void;
+  orbit(dx: number, dy: number): void;
+  centerOn(tile: number): void;
+  follow(a: Agent, alpha: number): void;
+  draw(sim: Simulation, alpha: number, view: ViewState, now: number): void;
+}
+
+export function hash(i: number, k: number) {
   let h = (i * 2654435761 + k * 40503) | 0;
   h = Math.imul(h ^ (h >>> 15), 2246822507);
   h ^= h >>> 13;
@@ -30,6 +47,30 @@ function mix(a: number[], b: number[], t: number) {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
 const rgb = (c: number[]) => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+
+/** Base colour of a terrain tile (shared by the 2D and 3D renderers). */
+export function tileRGB(sim: Simulation, i: number, winter: boolean, autumn: boolean, thr: number): number[] {
+  const w = sim.world;
+  const t = w.terrain[i];
+  let base: number[];
+  if (t === Terrain.Water) {
+    if (w.depth[i] > thr) {
+      const d = Math.min(1, (w.depth[i] - thr) / 0.25);
+      base = mix([86, 140, 168], [28, 64, 99], d);
+      if (winter && d < 0.35) base = mix(base, [190, 214, 226], 0.5);
+    } else base = mix([138, 118, 86], [120, 100, 72], hash(i, 1));
+  } else if (t === Terrain.Sand) base = mix([214, 199, 150], [200, 184, 136], hash(i, 1));
+  else if (t === Terrain.Rock) base = mix([122, 126, 132], [98, 102, 108], hash(i, 1));
+  else {
+    const f = w.fertility[i];
+    base = mix([150, 168, 92], [84, 138, 70], f);
+    if (autumn) base = mix(base, [176, 150, 80], 0.35);
+    if (winter) base = mix(base, [222, 228, 232], 0.62);
+    base = mix(base, [0, 0, 0], hash(i, 2) * 0.06);
+  }
+  if (w.rainfall < 0.6 && (t === Terrain.Grass || t === Terrain.Forest)) base = mix(base, [190, 170, 110], 0.35);
+  return base;
+}
 
 export function temperamentColor(a: Agent) {
   // generous → teal; selfish & bold → orange-red. Lightness from sociability.
@@ -42,7 +83,7 @@ export function groupColor(hue: number, alpha = 1) {
   return `hsla(${hue}, 72%, 68%, ${alpha})`;
 }
 
-export class Renderer {
+export class Renderer implements WorldView {
   ctx: CanvasRenderingContext2D;
   cam: Camera = { x: (W * TS) / 2, y: (H * TS) / 2, zoom: 1 };
   private terrain: HTMLCanvasElement;
@@ -100,6 +141,18 @@ export class Renderer {
     this.cam.x += before.x - after.x;
     this.cam.y += before.y - after.y;
   }
+  panBy(dx: number, dy: number) {
+    this.cam.x -= dx / this.cam.zoom;
+    this.cam.y -= dy / this.cam.zoom;
+  }
+  orbit(dx: number, dy: number) {
+    this.panBy(dx, dy); // no rotation in the flat view
+  }
+  follow(a: Agent, alpha: number) {
+    const p = this.agentPos(a, alpha);
+    this.cam.x += (p.x - this.cam.x) * 0.15;
+    this.cam.y += (p.y - this.cam.y) * 0.15;
+  }
   centerOn(tile: number) {
     this.cam.x = ((tile % W) + 0.5) * TS;
     this.cam.y = (((tile / W) | 0) + 0.5) * TS;
@@ -136,23 +189,7 @@ export class Renderer {
         const i = y * W + x;
         const px = x * TS, py = y * TS;
         const t = w.terrain[i];
-        let base: number[];
-        if (t === Terrain.Water) {
-          if (w.depth[i] > thr) {
-            const d = Math.min(1, (w.depth[i] - thr) / 0.25);
-            base = mix([86, 140, 168], [28, 64, 99], d);
-            if (winter && d < 0.35) base = mix(base, [190, 214, 226], 0.5);
-          } else base = mix([138, 118, 86], [120, 100, 72], hash(i, 1));
-        } else if (t === Terrain.Sand) base = mix([214, 199, 150], [200, 184, 136], hash(i, 1));
-        else if (t === Terrain.Rock) base = mix([122, 126, 132], [98, 102, 108], hash(i, 1));
-        else {
-          const f = w.fertility[i];
-          base = mix([150, 168, 92], [84, 138, 70], f);
-          if (autumn) base = mix(base, [176, 150, 80], 0.35);
-          if (winter) base = mix(base, [222, 228, 232], 0.62);
-          base = mix(base, [0, 0, 0], hash(i, 2) * 0.06);
-        }
-        if (w.rainfall < 0.6 && (t === Terrain.Grass || t === Terrain.Forest)) base = mix(base, [190, 170, 110], 0.35);
+        const base = tileRGB(sim, i, winter, autumn, thr);
         g.fillStyle = rgb(base);
         g.fillRect(px, py, TS, TS);
 

@@ -4,6 +4,7 @@ import { ACT_LABEL, Act, LEARNED_ACTS, TRAIT_LABEL, Traits, TICKS_PER_DAY, Candi
 import { temperamentColor, groupColor } from './renderer';
 import { sparkline } from './charts';
 import { detectInsights } from '../sim/insights';
+import { insightIcon } from './icons';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const pct = (v: number) => `${Math.round(v * 100)}`;
@@ -162,7 +163,7 @@ export class AgentPanel {
       <div class="sub">${age.toFixed(1)} anos${age < 1.5 ? ' (criança)' : ''} · ${home ? `mora em um abrigo com ${home.owners.length - 1} outro(s)` : 'sem abrigo'}${a.parents.length ? ` · filho(a) de ${a.parents.map((p) => `<a data-agent="${p}">${esc(sim.byId.get(p)?.name ?? '?')}</a>`).join(' e ')}` : ''}</div>`;
 
     if (!a.alive) {
-      this.dyn.innerHTML = `<div class="doing"><div class="now">✝ Morreu de <b>${esc(a.deathCause)}</b> no ${dayOf(a.deathTick)}</div></div>`;
+      this.dyn.innerHTML = `<div class="doing"><div class="now">Morreu de <b>${esc(a.deathCause)}</b> no ${dayOf(a.deathTick)}</div></div>`;
     } else {
       const it = a.intent;
       const chosen = a.lastChoice;
@@ -209,10 +210,10 @@ export class AgentPanel {
         ${meter('Solidão', a.loneliness, needColor(a.loneliness))}
         ${meter('Saúde', a.health, a.health < 0.4 ? '#e2665c' : '#79a7ff')}
       </div>
-      ${a.sick > 0 ? `<div class="sub" style="color:#9be05a">🦠 doente (${a.sick} ticks restantes)</div>` : ''}
+      ${a.sick > 0 ? `<div class="sub" style="color:#9be05a">doente (${a.sick} ticks restantes)</div>` : ''}
       <h3>Posses</h3>
-      <div class="inv"><span>🍓 comida <b>${a.food.toFixed(1)}</b></span><span>🪵 lenha <b>${a.wood.toFixed(1)}</b></span>
-        ${home ? `<span>🏠 estoque <b>${home.food.toFixed(0)}</b> comida · <b>${home.wood.toFixed(0)}</b> lenha</span>` : ''}</div>
+      <div class="inv"><span>comida <b>${a.food.toFixed(1)}</b></span><span>lenha <b>${a.wood.toFixed(1)}</b></span>
+        ${home ? `<span>estoque do abrigo <b>${home.food.toFixed(0)}</b> comida · <b>${home.wood.toFixed(0)}</b> lenha</span>` : ''}</div>
       <h3>Estratégias aprendidas <span class="badge" title="Valor esperado aprendido pela própria experiência; multiplica a atratividade da ação">−1 … +1</span></h3>
       <div class="qbars">${LEARNED_ACTS.map((k) => `<label>${Q_LABEL[k]}</label>${fbar(a.q[k], 0.6)}<span class="v" style="font-family:var(--mono);font-size:11px;color:var(--muted);text-align:right">${a.q[k] >= 0 ? '+' : ''}${a.q[k].toFixed(2)}</span>`).join('')}</div>
       <h3>Habilidades</h3>
@@ -296,7 +297,7 @@ export class SocietyPanel {
       <h3>Padrões detectados agora</h3>
       <div class="groups">${
         detectInsights(sim)
-          .map((i) => `<div class="group"><div class="gh">${i.icon} ${esc(i.title)}</div><div class="gm">${esc(i.text)}${i.agents.length ? `<br>${i.agents.map((m) => `<a data-agent="${m}">${esc(sim.byId.get(m)?.name ?? '?')}</a>`).join(', ')}` : ''}</div></div>`)
+          .map((i) => `<div class="group"><div class="gh">${insightIcon(i.icon)} ${esc(i.title)}</div><div class="gm">${esc(i.text)}${i.agents.length ? `<br>${i.agents.map((m) => `<a data-agent="${m}">${esc(sim.byId.get(m)?.name ?? '?')}</a>`).join(', ')}` : ''}</div></div>`)
           .join('') || '<div class="empty">Ainda nenhum padrão claro. Deixe o tempo correr (ou provoque uma crise).</div>'
       }</div>
       <h3>Grupos emergentes (${sim.groups.length})</h3>

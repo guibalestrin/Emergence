@@ -47,17 +47,21 @@ Outros comandos:
 - **Laboratório**: experimentos controlados em segundo plano, com média ± desvio e estatística *t*.
 - **Novo mundo**: semente, população, abundância e **ablação** de mecanismos (aprendizado, fofoca,
   compartilhar locais, reprodução). **↺ Mesma semente** repete exatamente a mesma história.
-- Atalhos: `Espaço` pausa · `1`–`4` velocidade · `F` seguir · `R` recentralizar · `Esc` limpar.
+- **Visão 3D ou mapa**: o mundo abre em 3D (dia e noite, estações, chuva, neve, fogo, casas iluminadas à noite).
+  Arraste para mover, roda para zoom, botão direito (ou Shift + arrastar) para girar. `V` alterna para o mapa 2D.
+- **Modo vitrine**: após 2 minutos sem interação, a tela de abertura volta com a câmera orbitando.
+- Atalhos: `Espaço` pausa · `1`–`4` velocidade · `V` 3D/mapa · `F` seguir · `R` recentralizar · `Esc` limpar.
 
 ## Documentação
 
 - [`docs/COMO_FUNCIONA.md`](docs/COMO_FUNCIONA.md) — arquitetura, mecanismos, o que é regra e o que é emergente, limitações.
 - [`docs/RESULTADOS.md`](docs/RESULTADOS.md) — experimentos executados e o que mostraram.
 - [`docs/APRESENTACAO.md`](docs/APRESENTACAO.md) — roteiro para a Expo e respostas para perguntas frequentes.
+- [`docs/PROMPT_MELHORIAS.md`](docs/PROMPT_MELHORIAS.md) — próximas melhorias visuais (prompt pronto) e ferramentas recomendadas.
 
 ## Tecnologias
 
-TypeScript, Canvas 2D, Vite (empacotado em um único HTML), Web Worker para o laboratório. Sem servidor, sem
+TypeScript, three.js (visão 3D) e Canvas 2D (mapa), Vite (empacotado em um único HTML, com fontes embutidas), Web Worker para o laboratório. Sem servidor, sem
 custo, sem modelos de linguagem: as decisões vêm de uma arquitetura de utilidade transparente com aprendizado por
 reforço simples (veja o porquê em `docs/COMO_FUNCIONA.md`). Roda folgado em notebook comum (~0,4 ms por passo com
 50 agentes).

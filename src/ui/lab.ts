@@ -9,7 +9,7 @@ export function renderLab(box: HTMLElement, close: () => void) {
   let current = EXPERIMENTS[0];
   box.innerHTML = `
     <button class="btn icon close" data-x>✕</button>
-    <h1>LABORATÓRIO</h1>
+    <h1>Laboratório</h1>
     <p>O mundo ao vivo mostra <b>uma</b> história. Para separar padrões reais de acaso, o laboratório roda o <b>mesmo experimento várias vezes</b>
        (sementes diferentes) em cada condição, sem gráficos, em segundo plano — e compara as médias. Cada condição altera <b>uma única variável</b>.</p>
     <div class="cols3" id="lab-exps"></div>

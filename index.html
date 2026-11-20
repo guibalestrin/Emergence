@@ -11,8 +11,8 @@
     <div id="app">
       <header id="topbar">
         <div class="brand">
-          <span class="logo">EMERGENCE</span>
-          <span class="tag">experimento de sociedade artificial</span>
+          <span class="logo">Emergence</span>
+          <span class="tag" id="seedtag">sociedade artificial</span>
         </div>
         <div class="clock">
           <span id="date">—</span>
@@ -20,7 +20,11 @@
           <span id="popcount" class="pill">—</span>
         </div>
         <div class="controls">
-          <button id="play" class="btn icon" title="Pausar / continuar (Espaço)">⏸</button>
+          <div class="seg" id="viewmode" title="Alternar visão 3D / mapa (tecla V)">
+            <button data-mode="3d" class="on"><i data-icon="cube" data-size="14"></i>3D</button>
+            <button data-mode="2d"><i data-icon="map" data-size="14"></i>Mapa</button>
+          </div>
+          <button id="play" class="btn icon" title="Pausar / continuar (Espaço)"><i data-icon="pause" data-size="15"></i></button>
           <div class="seg" id="speeds">
             <button data-speed="1" class="on" title="Tecla 1">1×</button>
             <button data-speed="3" title="Tecla 2">3×</button>
@@ -28,40 +32,44 @@
             <button data-speed="30" title="Tecla 4">30×</button>
           </div>
           <button id="btn-new" class="btn" title="Configurar e gerar um novo mundo">Novo mundo</button>
-          <button id="btn-replay" class="btn" title="Recomeçar exatamente o mesmo mundo (mesma semente)">↺ Mesma semente</button>
-          <button id="btn-lab" class="btn accent" title="Rodar experimentos controlados">Laboratório</button>
-          <button id="btn-help" class="btn icon" title="Como funciona">?</button>
+          <button id="btn-replay" class="btn" title="Recomeçar exatamente o mesmo mundo (mesma semente)"><i data-icon="replay" data-size="14"></i>Mesma semente</button>
+          <button id="btn-lab" class="btn accent" title="Rodar experimentos controlados"><i data-icon="lab" data-size="15"></i>Laboratório</button>
+          <button id="btn-help" class="btn icon" title="Como funciona"><i data-icon="help" data-size="16"></i></button>
         </div>
       </header>
 
       <div id="stage">
-        <canvas id="world"></canvas>
+        <div id="viewport">
+          <canvas id="world"></canvas>
+          <canvas id="world3d"></canvas>
+          <div id="label3d"></div>
+        </div>
 
         <nav id="toolbar" aria-label="Ferramentas de intervenção">
           <div class="tgroup">
-            <button class="tool on" data-tool="observe" title="Observar: clique em um indivíduo para inspecioná-lo. Arraste para mover a câmera.">🔍<span>Observar</span></button>
+            <button class="tool on" data-tool="observe" title="Observar: clique em um indivíduo para inspecioná-lo. Arraste para mover a câmera; botão direito gira (3D)."><i data-icon="observe"></i><span>Observar</span></button>
           </div>
           <div class="tlabel">Ambiente</div>
           <div class="tgroup">
-            <button class="tool" data-tool="plant" title="Plantar arbustos de frutas (pincel)">🌱<span>Plantar</span></button>
-            <button class="tool" data-tool="gift" title="Lançar uma dádiva de comida no chão">🧺<span>Dádiva</span></button>
-            <button class="tool" data-tool="clear" title="Remover vegetação (pincel)">🪓<span>Desmatar</span></button>
-            <button class="tool" data-tool="forest" title="Plantar floresta (pincel)">🌲<span>Floresta</span></button>
-            <button class="tool" data-tool="water" title="Criar lago (pincel)">💧<span>Água</span></button>
-            <button class="tool" data-tool="fire" title="Iniciar um incêndio">🔥<span>Fogo</span></button>
+            <button class="tool" data-tool="plant" title="Plantar arbustos de frutas (pincel)"><i data-icon="plant"></i><span>Plantar</span></button>
+            <button class="tool" data-tool="gift" title="Lançar uma dádiva de comida no chão"><i data-icon="gift"></i><span>Dádiva</span></button>
+            <button class="tool" data-tool="clear" title="Remover vegetação (pincel)"><i data-icon="clear"></i><span>Desmatar</span></button>
+            <button class="tool" data-tool="forest" title="Plantar floresta (pincel)"><i data-icon="forest"></i><span>Floresta</span></button>
+            <button class="tool" data-tool="water" title="Criar lago (pincel)"><i data-icon="water"></i><span>Água</span></button>
+            <button class="tool" data-tool="fire" title="Iniciar um incêndio"><i data-icon="fire"></i><span>Fogo</span></button>
           </div>
           <div class="tlabel">Indivíduos</div>
           <div class="tgroup">
-            <button class="tool" data-tool="spawn" title="Introduzir um novo indivíduo">👤<span>Novo ser</span></button>
+            <button class="tool" data-tool="spawn" title="Introduzir um novo indivíduo"><i data-icon="spawn"></i><span>Novo ser</span></button>
+            <button class="tool" data-tool="disease" title="Infectar um indivíduo com uma doença contagiosa"><i data-icon="disease"></i><span>Doença</span></button>
             <select id="preset" title="Personalidade do novo indivíduo"></select>
-            <button class="tool" data-tool="disease" title="Infectar um indivíduo com uma doença contagiosa">🦠<span>Doença</span></button>
           </div>
           <div class="tlabel">Clima</div>
           <div class="tgroup">
-            <button class="tool act" id="cl-drought" title="Seca severa por 16 dias: chuva cai, lagos rasos secam, plantas crescem pouco">☀️<span>Seca</span></button>
-            <button class="tool act" id="cl-deluge" title="Chuvas abundantes por 12 dias">🌧️<span>Chuvas</span></button>
-            <button class="tool act" id="cl-winter" title="Invernos rigorosos (frio mais intenso, mais lenha queimada)">❄️<span>Inverno rigoroso</span></button>
-            <button class="tool act" id="cl-normal" title="Normalizar o clima">⛅<span>Normal</span></button>
+            <button class="tool act" id="cl-drought" title="Seca severa por 16 dias: chuva cai, lagos rasos secam, plantas crescem pouco"><i data-icon="drought"></i><span>Seca</span></button>
+            <button class="tool act" id="cl-deluge" title="Chuvas abundantes por 12 dias"><i data-icon="deluge"></i><span>Chuvas</span></button>
+            <button class="tool act" id="cl-winter" title="Invernos rigorosos (frio mais intenso, mais lenha queimada)"><i data-icon="winter"></i><span>Inverno duro</span></button>
+            <button class="tool act" id="cl-normal" title="Normalizar o clima"><i data-icon="normal"></i><span>Normal</span></button>
           </div>
           <div class="brush">
             <label>Pincel <input id="brush" type="range" min="1" max="6" value="2" /></label>
@@ -73,7 +81,7 @@
 
         <div id="legend">
           <div><i class="dot" style="background:#4fd1b5"></i>generoso <i class="dot" style="background:#e8794a"></i>egoísta/ousado</div>
-          <div><i class="ring"></i>anel = grupo emergente · 🏠 abrigo</div>
+          <div><i class="ring"></i>anel = grupo emergente · casa = abrigo</div>
           <label class="chk"><input type="checkbox" id="ov-net" /> rede de confiança</label>
           <label class="chk"><input type="checkbox" id="ov-glyph" checked /> intenções</label>
         </div>
@@ -106,6 +114,7 @@
       </section>
     </div>
 
+    <div id="intro" class="hidden" role="dialog" aria-modal="true" aria-labelledby="intro-title"></div>
     <div id="modal" class="hidden"><div class="box" id="modalbox"></div></div>
 
     <script type="module" src="/src/ui/main.ts"></script>

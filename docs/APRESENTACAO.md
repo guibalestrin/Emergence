@@ -5,10 +5,13 @@
 - Abra `EMERGENCE.html`, feche a tela de boas-vindas só quando chegar o primeiro visitante.
 - Deixe rodando em **3×** por uns minutos para já existirem abrigos, grupos e alguma história.
 - Se quiser uma história conhecida, use **Novo mundo** com uma semente que você testou antes.
+- **Modo vitrine**: depois de 2 minutos sem ninguém mexer, a tela de abertura volta sozinha, com a câmera 3D
+  girando em volta do mundo. É o "chamariz" para quem passa pelo estande; um clique entra de novo no experimento.
+- Se o notebook estiver lento no 3D, aperte **V** para usar o mapa 2D (mesma simulação, mais leve).
 
 ## Roteiro sugerido
 
-1. **O conceito (30 s)** — "Cada ponto é um indivíduo com fome, sede, frio, personalidade e memória. Ninguém
+1. **O conceito (30 s)** — Gire a câmera com o botão direito e dê zoom num grupo de casas. "Cada boneco é um indivíduo com fome, sede, frio, personalidade e memória. Ninguém
    programou amizades, grupos ou crimes. Vamos ver o que surgiu."
 2. **Um indivíduo (1–2 min)** — Aba *Indivíduo* → clique em um "notável" (ex.: *Maior ladrão* ou *Mais generoso*).
    Mostre "Agora: …" e clique nas opções para abrir os **fatores**: "ele escolheu isso porque a fome pesou +0,4 e
