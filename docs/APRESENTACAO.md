@@ -18,7 +18,7 @@
 4. **Intervenção (1–2 min)** — Peça ao visitante para escolher: **seca**, **fogo** ou **introduzir um oportunista**.
    Acelere para 10× e observe a crônica e os gráficos. Pergunte: "o que você acha que vai acontecer?"
 5. **A ciência (1 min)** — Abra o **Laboratório** com um resultado já rodado (ex.: *Aprender com a experiência*).
-   "Sem aprendizado, os agentes roubam ~4× mais e a confiança cai. Rodamos 8 sociedades por condição; a diferença é
+   "Sem aprendizado, os agentes roubam ~6× mais e a confiança cai. Rodamos 8 sociedades por condição; a diferença é
    maior que o acaso." Mostre também um resultado nulo (fofoca) — honestidade científica.
 6. **Repetição** — Clique **↺ Mesma semente**: "sem intervenção, a história se repete exatamente. Um mundo
    diferente (outra semente) conta outra história."
