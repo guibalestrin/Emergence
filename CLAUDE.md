@@ -17,7 +17,10 @@ A entrega final é **um único HTML offline** (`EMERGENCE.html`), aberto com doi
 - `src/ui/main.ts`: app, loop, ferramentas, intro, modais.
 - `src/ui/renderer.ts`: visão 2D (Canvas) + interface `WorldView` e funções de cor compartilhadas.
 - `src/ui/renderer3d.ts`: visão 3D (three.js, instanced meshes). Mesma interface `WorldView`.
-  Tecla `V` alterna; se WebGL falhar, o app fica só em 2D.
+  Tecla `V` alterna; se WebGL falhar, o app fica só em 2D. Navegação: WASD/setas, Q/E, +/−, G (chão),
+  T (passeio), R (visão geral). Casas, lenha, celeiros, andaimes e fogueiras de grupo são derivados
+  do estado dos abrigos (só visual, o motor não muda).
+- Deploy: projeto Vercel `emergence` ligado ao GitHub; cada push publica em https://emergence-insper.vercel.app
 - `src/ui/panels.ts`, `charts.ts`, `lab.ts`: painéis, gráficos e laboratório.
 - `src/ui/icons.ts`: ícones (lucide) como SVG inline. Não use emoji na interface.
 
@@ -27,7 +30,13 @@ A entrega final é **um único HTML offline** (`EMERGENCE.html`), aberto com doi
   Importe só os subconjuntos `latin-*.css` do @fontsource para não inflar o HTML.
 - Paleta em variáveis no topo de `src/style.css`. Âmbar (`--accent`) é o único destaque.
 - Evitar cara de template de IA: nada de grade de cards iguais com ícone em cima, emoji, glow neon,
-  glassmorphism, gradiente roxo. Preferir layout editorial, linhas finas, números grandes em serifa.
+  gradiente roxo. Preferir layout editorial, linhas finas, números grandes em serifa.
+- Superfícies flutuantes usam o material "liquid glass" (`.glass` em `src/style.css`): blur + brilho
+  interno + sombra longa; refração SVG (`#liquid`) só em barras/dock no Chromium; `body.lowfx` troca o
+  blur por tinta opaca quando o FPS cai. Popovers ficam no nível de `#app` (aninhados num pai com
+  backdrop-filter eles perdem o próprio fundo). Tokens e componentes espelhados no Figma
+  ("EMERGENCE — Liquid Glass UI").
+- O mundo ocupa a tela inteira; a câmera 3D enquadra a área livre entre os painéis (`setInsets`).
 - Animações curtas com `--ease`; tudo respeita `prefers-reduced-motion`.
 - O HTML final deve continuar abaixo de ~2 MB e rodar liso num notebook comum.
 - Sem dependência de rede em tempo de execução (nada de CDN, fontes remotas ou APIs).
